@@ -21,6 +21,8 @@ export interface RoomMember {
   startedAt: number | null;
   accumulatedMs: number;
   todayMs: number;
+  /** epoch ms of the user's most recent completed session, if any */
+  lastCompletedAt: number | null;
 }
 
 export interface ChatMessage {
@@ -55,6 +57,7 @@ interface PresenceMeta {
   startedAt: number | null;
   accumulatedMs: number;
   todayMs: number;
+  lastCompletedAt: number | null;
 }
 
 function rowToMessage(r: MessageRow): ChatMessage {
@@ -82,6 +85,7 @@ export function useRoom(roomId: string) {
   const accumulatedMs = useFocusStore((s) => s.accumulatedMs);
   const sessions = useFocusStore((s) => s.sessions);
   const myToday = computeTodayMs(sessions);
+  const myLastCompletedAt = sessions.at(-1)?.endedAt ?? null;
 
   const [members, setMembers] = useState<RoomMember[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -101,7 +105,16 @@ export function useRoom(roomId: string) {
   const color = userId ? colorForId(userId) : "#6366f1";
 
   const meta = useRef<PresenceMeta>({} as PresenceMeta);
-  meta.current = { name, color, mode, status, startedAt, accumulatedMs, todayMs: myToday };
+  meta.current = {
+    name,
+    color,
+    mode,
+    status,
+    startedAt,
+    accumulatedMs,
+    todayMs: myToday,
+    lastCompletedAt: myLastCompletedAt,
+  };
 
   const addMessage = useCallback((msg: ChatMessage) => {
     setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg].slice(-200)));
@@ -151,6 +164,7 @@ export function useRoom(roomId: string) {
               status: m?.status ?? "idle",
               startedAt: m?.startedAt ?? null,
               accumulatedMs: m?.accumulatedMs ?? 0,
+              lastCompletedAt: m?.lastCompletedAt ?? null,
               todayMs: m?.todayMs ?? 0,
             };
           }),
@@ -215,7 +229,7 @@ export function useRoom(roomId: string) {
   // re-broadcast presence whenever our identity / focus state changes
   useEffect(() => {
     if (connected) channelRef.current?.track(meta.current).catch(() => {});
-  }, [connected, name, color, mode, status, startedAt, accumulatedMs, myToday]);
+  }, [connected, name, color, mode, status, startedAt, accumulatedMs, myToday, myLastCompletedAt]);
 
   function applyReaction(messageId: string, emoji: string, uid: string, op: "add" | "remove") {
     setReactions((prev) => {
@@ -287,8 +301,28 @@ export function useRoom(roomId: string) {
     return [...msgs, ...sys].sort((a, b) => a.at - b.at);
   }, [messages, systemEntries]);
 
+  // Our own row is rendered from local state (instant) rather than the
+  // presence echo (round-trip lag) so the user sees their own timer status
+  // change the instant they press Start. Peers continue via presence as usual.
+  const visibleMembers = useMemo<RoomMember[]>(() => {
+    if (!userId) return members;
+    const self: RoomMember = {
+      id: userId,
+      name,
+      color,
+      mode,
+      status,
+      startedAt,
+      accumulatedMs,
+      todayMs: myToday,
+      lastCompletedAt: myLastCompletedAt,
+    };
+    const has = members.some((m) => m.id === userId);
+    return has ? members.map((m) => (m.id === userId ? self : m)) : [self, ...members];
+  }, [members, userId, name, color, mode, status, startedAt, accumulatedMs, myToday, myLastCompletedAt]);
+
   return {
-    members,
+    members: visibleMembers,
     entries,
     reactions,
     typing,

@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 
 const FREE_BLOCK = 25 * 60_000;
 const CLUSTER_GAP_MS = 4 * 60_000;
+const CELEBRATE_MS = 5_000; // show "Just completed!" for ~5s after a session ends
 const REACTION_EMOJI = ["👍", "❤️", "🎉", "🔥", "😂", "👀"] as const;
 
 // ─────────────────────── shared bits ───────────────────────
@@ -34,12 +35,28 @@ function Avatar({ name, color, size = 32 }: { name: string; color: string; size?
   );
 }
 
-function statusOf(m: RoomMember): { label: string; tone: string; active: boolean } {
-  if (m.status !== "running")
-    return { label: m.status === "paused" ? "Paused" : "Idle", tone: "var(--muted-foreground)", active: false };
-  if (m.mode === "focus" || m.mode === "free")
-    return { label: "Focusing", tone: "var(--chart-3)", active: true };
-  return { label: "On a break", tone: "var(--chart-4)", active: true };
+interface MemberStatus {
+  label: string;
+  tone: string;
+  active: boolean;
+  celebrating: boolean;
+}
+
+function statusOf(m: RoomMember, now: number): MemberStatus {
+  if (m.status === "running") {
+    if (m.mode === "focus" || m.mode === "free")
+      return { label: "Focusing", tone: "var(--chart-3)", active: true, celebrating: false };
+    return { label: "On a break", tone: "var(--chart-4)", active: true, celebrating: false };
+  }
+  if (m.lastCompletedAt && now - m.lastCompletedAt < CELEBRATE_MS) {
+    return { label: "Just completed!", tone: "var(--chart-3)", active: true, celebrating: true };
+  }
+  return {
+    label: m.status === "paused" ? "Paused" : "Idle",
+    tone: "var(--muted-foreground)",
+    active: false,
+    celebrating: false,
+  };
 }
 
 function MiniRing({ member, now }: { member: RoomMember; now: number }) {
@@ -49,7 +66,8 @@ function MiniRing({ member, now }: { member: RoomMember; now: number }) {
   const c = 2 * Math.PI * r;
   const target = targetMsFor(member.mode);
   const elapsed = elapsedMs(member, now);
-  const progress =
+  const stat = statusOf(member, now);
+  const baseProgress =
     member.mode === "free"
       ? member.status === "running"
         ? (elapsed % FREE_BLOCK) / FREE_BLOCK
@@ -57,7 +75,9 @@ function MiniRing({ member, now }: { member: RoomMember; now: number }) {
       : target === 0
         ? 0
         : Math.min(1, elapsed / target);
-  const { tone, active } = statusOf(member);
+  // celebrating → fully filled green ring
+  const progress = stat.celebrating ? 1 : baseProgress;
+  const { tone, active } = stat;
 
   return (
     <div className="relative" style={{ width: size, height: size }}>
@@ -87,7 +107,10 @@ function MiniRing({ member, now }: { member: RoomMember; now: number }) {
 
 function StudyHall({ members, meId }: { members: RoomMember[]; meId: string | null }) {
   const now = useNow(1000);
-  const focusing = members.filter((m) => statusOf(m).active && (m.mode === "focus" || m.mode === "free")).length;
+  const focusing = members.filter((m) => {
+    const s = statusOf(m, now);
+    return s.active && !s.celebrating && (m.mode === "focus" || m.mode === "free");
+  }).length;
   return (
     <Card className="p-5">
       <div className="mb-4 flex items-center justify-between">
@@ -99,7 +122,7 @@ function StudyHall({ members, meId }: { members: RoomMember[]; meId: string | nu
       ) : (
         <ul className="space-y-3">
           {members.map((m) => {
-            const { label, tone } = statusOf(m);
+            const { label, tone } = statusOf(m, now);
             return (
               <li key={m.id} className="flex items-center gap-3">
                 <MiniRing member={m} now={now} />
