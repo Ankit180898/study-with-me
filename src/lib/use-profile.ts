@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSupabase } from "@/lib/supabase/provider";
 
 const NAME_KEY = "study-with-me:name";
+const WORKING_ON_KEY = "study-with-me:working-on";
 const ONBOARDED_KEY = "study-with-me:onboarded";
 
 /**
@@ -13,12 +14,14 @@ const ONBOARDED_KEY = "study-with-me:onboarded";
 export function useProfile() {
   const { user, supabase } = useSupabase();
   const [name, setNameState] = useState("");
+  const [workingOn, setWorkingOnState] = useState("");
   const [onboarded, setOnboarded] = useState(true); // assume true until mounted
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
     setNameState(localStorage.getItem(NAME_KEY) ?? "");
+    setWorkingOnState(localStorage.getItem(WORKING_ON_KEY) ?? "");
     setOnboarded(localStorage.getItem(ONBOARDED_KEY) === "1");
   }, []);
 
@@ -34,6 +37,12 @@ export function useProfile() {
     [supabase],
   );
 
+  const saveWorkingOn = useCallback((value: string) => {
+    const trimmed = value.trim().slice(0, 60);
+    setWorkingOnState(trimmed);
+    localStorage.setItem(WORKING_ON_KEY, trimmed);
+  }, []);
+
   const completeOnboarding = useCallback(() => {
     localStorage.setItem(ONBOARDED_KEY, "1");
     setOnboarded(true);
@@ -46,10 +55,12 @@ export function useProfile() {
   return {
     mounted,
     displayName,
+    workingOn,
     email,
     isSynced: Boolean(email),
     onboarded,
     saveName,
+    saveWorkingOn,
     completeOnboarding,
   };
 }

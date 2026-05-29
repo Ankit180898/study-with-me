@@ -23,6 +23,9 @@ export interface RoomMember {
   todayMs: number;
   /** epoch ms of the user's most recent completed session, if any */
   lastCompletedAt: number | null;
+  /** duration in ms of that most recent completed session */
+  lastCompletedMs: number | null;
+  workingOn: string;
 }
 
 export interface ChatMessage {
@@ -34,9 +37,20 @@ export interface ChatMessage {
   at: number;
 }
 
+export interface CelebrateEntry {
+  id: string;
+  userId: string;
+  name: string;
+  color: string;
+  mode: TimerMode;
+  durationMs: number;
+  at: number;
+}
+
 export type ChatEntry =
   | ({ type: "msg" } & ChatMessage)
-  | { type: "system"; id: string; kind: "join" | "leave"; name: string; at: number };
+  | { type: "system"; id: string; kind: "join" | "leave"; name: string; at: number }
+  | ({ type: "celebrate" } & CelebrateEntry);
 
 type ReactionsState = Record<string, Record<string, string[]>>; // messageId -> emoji -> userIds
 
@@ -58,6 +72,8 @@ interface PresenceMeta {
   accumulatedMs: number;
   todayMs: number;
   lastCompletedAt: number | null;
+  lastCompletedMs: number | null;
+  workingOn: string;
 }
 
 function rowToMessage(r: MessageRow): ChatMessage {
@@ -77,7 +93,7 @@ const TYPING_TTL_MS = 3000;
 
 export function useRoom(roomId: string) {
   const { supabase, userId } = useSupabase();
-  const { displayName } = useProfile();
+  const { displayName, workingOn } = useProfile();
 
   const mode = useFocusStore((s) => s.mode);
   const status = useFocusStore((s) => s.status);
@@ -85,13 +101,17 @@ export function useRoom(roomId: string) {
   const accumulatedMs = useFocusStore((s) => s.accumulatedMs);
   const sessions = useFocusStore((s) => s.sessions);
   const myToday = computeTodayMs(sessions);
-  const myLastCompletedAt = sessions.at(-1)?.endedAt ?? null;
+  const lastSession = sessions.at(-1);
+  const myLastCompletedAt = lastSession?.endedAt ?? null;
+  const myLastCompletedMs = lastSession?.durationMs ?? null;
 
   const [members, setMembers] = useState<RoomMember[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [systemEntries, setSystemEntries] = useState<
     { id: string; kind: "join" | "leave"; name: string; at: number }[]
   >([]);
+  const [celebrateEntries, setCelebrateEntries] = useState<CelebrateEntry[]>([]);
+  const seenCompletedAt = useRef<Map<string, number>>(new Map());
   const [reactions, setReactions] = useState<ReactionsState>({});
   const [typing, setTyping] = useState<{ id: string; name: string }[]>([]);
   const [connected, setConnected] = useState(false);
@@ -114,6 +134,8 @@ export function useRoom(roomId: string) {
     accumulatedMs,
     todayMs: myToday,
     lastCompletedAt: myLastCompletedAt,
+    lastCompletedMs: myLastCompletedMs,
+    workingOn,
   };
 
   const addMessage = useCallback((msg: ChatMessage) => {
@@ -165,6 +187,8 @@ export function useRoom(roomId: string) {
               startedAt: m?.startedAt ?? null,
               accumulatedMs: m?.accumulatedMs ?? 0,
               lastCompletedAt: m?.lastCompletedAt ?? null,
+              lastCompletedMs: m?.lastCompletedMs ?? null,
+              workingOn: m?.workingOn ?? "",
               todayMs: m?.todayMs ?? 0,
             };
           }),
@@ -217,6 +241,8 @@ export function useRoom(roomId: string) {
       setMembers([]);
       setMessages([]);
       setSystemEntries([]);
+      setCelebrateEntries([]);
+      seenCompletedAt.current.clear();
       setReactions({});
       setTyping([]);
       timers.forEach(clearTimeout);
@@ -294,12 +320,13 @@ export function useRoom(roomId: string) {
     [userId, reactions],
   );
 
-  // merge messages + system events into one chronological stream
+  // merge messages + system events + celebrations into one chronological stream
   const entries = useMemo<ChatEntry[]>(() => {
     const msgs: ChatEntry[] = messages.map((m) => ({ type: "msg", ...m }));
     const sys: ChatEntry[] = systemEntries.map((s) => ({ type: "system", ...s }));
-    return [...msgs, ...sys].sort((a, b) => a.at - b.at);
-  }, [messages, systemEntries]);
+    const celebs: ChatEntry[] = celebrateEntries.map((c) => ({ type: "celebrate", ...c }));
+    return [...msgs, ...sys, ...celebs].sort((a, b) => a.at - b.at);
+  }, [messages, systemEntries, celebrateEntries]);
 
   // Our own row is rendered from local state (instant) rather than the
   // presence echo (round-trip lag) so the user sees their own timer status
@@ -316,10 +343,48 @@ export function useRoom(roomId: string) {
       accumulatedMs,
       todayMs: myToday,
       lastCompletedAt: myLastCompletedAt,
+      lastCompletedMs: myLastCompletedMs,
+      workingOn,
     };
     const has = members.some((m) => m.id === userId);
     return has ? members.map((m) => (m.id === userId ? self : m)) : [self, ...members];
-  }, [members, userId, name, color, mode, status, startedAt, accumulatedMs, myToday, myLastCompletedAt]);
+  }, [members, userId, name, color, mode, status, startedAt, accumulatedMs, myToday, myLastCompletedAt, myLastCompletedMs, workingOn]);
+
+  // detect completions across all visible members and emit celebrate entries
+  useEffect(() => {
+    const seen = seenCompletedAt.current;
+    const fresh: CelebrateEntry[] = [];
+    visibleMembers.forEach((m) => {
+      if (!m.lastCompletedAt) return;
+      const prev = seen.get(m.id);
+      if (prev === undefined) {
+        // first observation — record without emitting (avoid retroactive spam)
+        seen.set(m.id, m.lastCompletedAt);
+        return;
+      }
+      if (m.lastCompletedAt > prev) {
+        seen.set(m.id, m.lastCompletedAt);
+        // only celebrate real focus blocks; skip breaks
+        if (m.mode === "short" || m.mode === "long") return;
+        fresh.push({
+          id: `celebrate-${m.id}-${m.lastCompletedAt}`,
+          userId: m.id,
+          name: m.name,
+          color: m.color,
+          mode: m.mode,
+          durationMs: m.lastCompletedMs ?? 0,
+          at: m.lastCompletedAt,
+        });
+      }
+    });
+    if (fresh.length) {
+      setCelebrateEntries((prev) => {
+        const ids = new Set(prev.map((c) => c.id));
+        const additions = fresh.filter((c) => !ids.has(c.id));
+        return additions.length ? [...prev, ...additions].slice(-50) : prev;
+      });
+    }
+  }, [visibleMembers]);
 
   return {
     members: visibleMembers,

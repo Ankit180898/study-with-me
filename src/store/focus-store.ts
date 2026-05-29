@@ -188,6 +188,34 @@ export function currentStreak(sessions: Session[], now = Date.now()): number {
   return streak;
 }
 
+/** The longest historical consecutive-day streak ever. */
+export function bestStreak(sessions: Session[]): number {
+  const days = Array.from(new Set(focusSessions(sessions).map((s) => dayKey(s.endedAt)))).sort();
+  if (days.length === 0) return 0;
+  const oneDay = 86_400_000;
+  let best = 1;
+  let current = 1;
+  for (let i = 1; i < days.length; i++) {
+    const prev = new Date(days[i - 1]).getTime();
+    const cur = new Date(days[i]).getTime();
+    if (cur - prev === oneDay) {
+      current += 1;
+      best = Math.max(best, current);
+    } else {
+      current = 1;
+    }
+  }
+  return best;
+}
+
+/** True if the user has an active streak but hasn't logged any focus today,
+ *  and it's evening — i.e. the streak is at risk of breaking. */
+export function streakInDanger(sessions: Session[], now = Date.now()): boolean {
+  if (currentStreak(sessions, now) === 0) return false;
+  if (todayMs(sessions, now) > 0) return false;
+  return new Date(now).getHours() >= 18;
+}
+
 /** Last `n` days (oldest→newest) of focus minutes for charting. */
 export function lastNDays(sessions: Session[], n = 7, now = Date.now()): DayStat[] {
   const oneDay = 86_400_000;

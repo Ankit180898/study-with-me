@@ -8,12 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TimerCard } from "@/components/timer-card";
 import { RoomMusic } from "@/components/room-music";
+import { VideoRoom } from "@/components/video-room";
 import { useRoom, type RoomMember, type ChatEntry, type ChatMessage } from "@/lib/use-room";
 import { initialsFor } from "@/lib/identity";
 import { getRoom } from "@/lib/rooms";
 import { formatMinutes } from "@/lib/time";
 import { useNow } from "@/lib/hooks";
 import { elapsedMs, targetMsFor } from "@/store/focus-store";
+import { useProfile } from "@/lib/use-profile";
 import { cn } from "@/lib/utils";
 
 const FREE_BLOCK = 25 * 60_000;
@@ -105,6 +107,64 @@ function MiniRing({ member, now }: { member: RoomMember; now: number }) {
   );
 }
 
+function WorkingOnLine({ member, isMe }: { member: RoomMember; isMe: boolean }) {
+  const { saveWorkingOn } = useProfile();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(member.workingOn);
+
+  useEffect(() => {
+    if (!editing) setDraft(member.workingOn);
+  }, [member.workingOn, editing]);
+
+  const text = member.workingOn;
+
+  if (!isMe) {
+    return text ? (
+      <p className="truncate text-xs text-muted-foreground">📝 {text}</p>
+    ) : null;
+  }
+
+  if (editing) {
+    return (
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void saveWorkingOn(draft);
+          setEditing(false);
+        }}
+      >
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            void saveWorkingOn(draft);
+            setEditing(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setDraft(text);
+              setEditing(false);
+            }
+          }}
+          maxLength={60}
+          placeholder="What are you working on?"
+          className="w-full rounded-md border bg-background px-2 py-0.5 text-xs outline-none focus:border-ring"
+        />
+      </form>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="truncate text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+    >
+      {text ? `📝 ${text}` : "+ Add what you're working on"}
+    </button>
+  );
+}
+
 function StudyHall({ members, meId }: { members: RoomMember[]; meId: string | null }) {
   const now = useNow(1000);
   const focusing = members.filter((m) => {
@@ -126,7 +186,7 @@ function StudyHall({ members, meId }: { members: RoomMember[]; meId: string | nu
             return (
               <li key={m.id} className="flex items-center gap-3">
                 <MiniRing member={m} now={now} />
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 space-y-0.5">
                   <p className="truncate text-sm font-medium">
                     {m.name}
                     {m.id === meId && <span className="ml-1 text-xs text-muted-foreground">(you)</span>}
@@ -134,8 +194,11 @@ function StudyHall({ members, meId }: { members: RoomMember[]; meId: string | nu
                   <p className="text-xs" style={{ color: tone }}>
                     {label}
                   </p>
+                  <WorkingOnLine member={m} isMe={m.id === meId} />
                 </div>
-                <span className="text-xs text-muted-foreground tabular-nums">{formatMinutes(m.todayMs)}</span>
+                <span className="self-start pt-0.5 text-xs text-muted-foreground tabular-nums">
+                  {formatMinutes(m.todayMs)}
+                </span>
               </li>
             );
           })}
@@ -185,7 +248,16 @@ interface SystemBlock {
   text: string;
   at: number;
 }
-type Block = MessageGroup | SystemBlock;
+interface CelebrateBlock {
+  kind: "celebrate";
+  id: string;
+  userId: string;
+  name: string;
+  color: string;
+  durationMs: number;
+  at: number;
+}
+type Block = MessageGroup | SystemBlock | CelebrateBlock;
 
 function buildBlocks(entries: ChatEntry[]): Block[] {
   const blocks: Block[] = [];
@@ -200,6 +272,22 @@ function buildBlocks(entries: ChatEntry[]): Block[] {
         kind: "system",
         id: e.id,
         text: e.kind === "join" ? `${e.name} joined the room` : `${e.name} left`,
+        at: e.at,
+      });
+      continue;
+    }
+    if (e.type === "celebrate") {
+      if (current) {
+        blocks.push(current);
+        current = null;
+      }
+      blocks.push({
+        kind: "celebrate",
+        id: e.id,
+        userId: e.userId,
+        name: e.name,
+        color: e.color,
+        durationMs: e.durationMs,
         at: e.at,
       });
       continue;
@@ -309,6 +397,59 @@ function MessageBubble({
   );
 }
 
+function CelebrateBlockView({
+  block,
+  mine,
+  reactions,
+  meId,
+  onReact,
+}: {
+  block: CelebrateBlock;
+  mine: boolean;
+  reactions: Record<string, string[]>;
+  meId: string | null;
+  onReact: (emoji: string) => void;
+}) {
+  return (
+    <div className="self-center w-full max-w-[80%]">
+      <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+        <span className="text-2xl">🎉</span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm">
+            <span className="font-medium" style={{ color: block.color }}>
+              {mine ? "You" : block.name}
+            </span>{" "}
+            just completed a {formatMinutes(block.durationMs)} focus block
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(block.at)}
+          </p>
+        </div>
+        <div className="flex items-center gap-0.5">
+          {(["👏", "🔥", "🎉"] as const).map((emoji) => {
+            const mineReacted = meId && reactions[emoji]?.includes(meId);
+            return (
+              <button
+                key={emoji}
+                onClick={() => onReact(emoji)}
+                className={cn(
+                  "flex items-center gap-0.5 rounded-full px-2 py-1 text-xs transition-colors",
+                  mineReacted ? "bg-emerald-500/25" : "hover:bg-emerald-500/15",
+                )}
+              >
+                <span className="text-base leading-none">{emoji}</span>
+                {(reactions[emoji]?.length ?? 0) > 0 && (
+                  <span className="tabular-nums">{reactions[emoji].length}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Chat({
   entries,
   reactions,
@@ -388,12 +529,27 @@ function Chat({
           </div>
         )}
         <div className="flex flex-col gap-4">
-          {blocks.map((b) =>
-            b.kind === "system" ? (
-              <div key={b.id} className="self-center text-xs text-muted-foreground">
-                <span className="rounded-full bg-secondary/60 px-2.5 py-0.5">— {b.text} —</span>
-              </div>
-            ) : (
+          {blocks.map((b) => {
+            if (b.kind === "system") {
+              return (
+                <div key={b.id} className="self-center text-xs text-muted-foreground">
+                  <span className="rounded-full bg-secondary/60 px-2.5 py-0.5">— {b.text} —</span>
+                </div>
+              );
+            }
+            if (b.kind === "celebrate") {
+              return (
+                <CelebrateBlockView
+                  key={b.id}
+                  block={b}
+                  mine={b.userId === meId}
+                  reactions={reactions[b.id] ?? {}}
+                  meId={meId}
+                  onReact={(emoji) => onReact(b.id, emoji)}
+                />
+              );
+            }
+            return (
               <MessageCluster
                 key={b.messages[0].id}
                 group={b}
@@ -403,8 +559,8 @@ function Chat({
                 onReact={onReact}
                 fmt={fmt}
               />
-            ),
-          )}
+            );
+          })}
         </div>
       </div>
 
@@ -544,6 +700,7 @@ export function RoomView({ roomId }: { roomId: string }) {
           onReact={toggleReaction}
         />
         <div className="flex flex-col gap-4 overflow-y-auto lg:max-h-full">
+          <VideoRoom roomId={roomId} />
           <RoomMusic roomId={roomId} />
           <StudyHall members={members} meId={me.id} />
           <TimerCard />
