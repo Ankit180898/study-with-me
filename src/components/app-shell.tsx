@@ -86,7 +86,7 @@ function SidebarFooter() {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen flex-1">
+    <div className="flex h-screen flex-1">
       {/* desktop sidebar */}
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col justify-between border-r bg-sidebar/60 p-4 backdrop-blur lg:flex">
         <div className="space-y-6">
@@ -108,7 +108,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <NavItems />
         </div>
 
-        <main className="relative flex flex-1 flex-col">
+        <main className="relative flex flex-1 flex-col min-h-0 overflow-y-auto">
           <div className="grid-texture pointer-events-none absolute inset-0 -z-10" />
           {children}
         </main>

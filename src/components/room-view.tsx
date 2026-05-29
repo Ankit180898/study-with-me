@@ -2,14 +2,30 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Send, Users, Clock, ArrowDown, SmilePlus } from "lucide-react";
+import {
+  ArrowLeft,
+  Send,
+  Users,
+  Clock,
+  ArrowDown,
+  SmilePlus,
+  MessageSquare,
+  Timer as TimerIcon,
+  Video,
+} from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TimerCard } from "@/components/timer-card";
-import { RoomMusic } from "@/components/room-music";
 import { VideoRoom } from "@/components/video-room";
-import { useRoom, type RoomMember, type ChatEntry, type ChatMessage } from "@/lib/use-room";
+import { RoomNav } from "@/components/room-nav";
+import { RoomMembersPanel } from "@/components/room-members-panel";
+import {
+  useRoom,
+  type RoomMember,
+  type ChatEntry,
+  type ChatMessage,
+} from "@/lib/use-room";
 import { initialsFor } from "@/lib/identity";
 import { getRoom } from "@/lib/rooms";
 import { formatMinutes } from "@/lib/time";
@@ -20,15 +36,23 @@ import { cn } from "@/lib/utils";
 
 const FREE_BLOCK = 25 * 60_000;
 const CLUSTER_GAP_MS = 4 * 60_000;
-const CELEBRATE_MS = 5_000; // show "Just completed!" for ~5s after a session ends
+const CELEBRATE_MS = 5_000;
 const REACTION_EMOJI = ["👍", "❤️", "🎉", "🔥", "😂", "👀"] as const;
 
-// ─────────────────────── shared bits ───────────────────────
+// ─────────────────────── Avatar ───────────────────────
 
-function Avatar({ name, color, size = 32 }: { name: string; color: string; size?: number }) {
+function Avatar({
+  name,
+  color,
+  size = 32,
+}: {
+  name: string;
+  color: string;
+  size?: number;
+}) {
   return (
     <span
-      className="flex shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
+      className="flex shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white ring-2 ring-background"
       style={{ backgroundColor: color, width: size, height: size }}
       title={name}
     >
@@ -36,6 +60,8 @@ function Avatar({ name, color, size = 32 }: { name: string; color: string; size?
     </span>
   );
 }
+
+// ─────────────────────── Member status ───────────────────────
 
 interface MemberStatus {
   label: string;
@@ -47,12 +73,26 @@ interface MemberStatus {
 function statusOf(m: RoomMember, now: number): MemberStatus {
   if (m.status === "running") {
     if (m.mode === "focus" || m.mode === "free")
-      return { label: "Focusing", tone: "var(--chart-3)", active: true, celebrating: false };
-    return { label: "On a break", tone: "var(--chart-4)", active: true, celebrating: false };
+      return {
+        label: "Focusing",
+        tone: "var(--chart-3)",
+        active: true,
+        celebrating: false,
+      };
+    return {
+      label: "On a break",
+      tone: "var(--chart-4)",
+      active: true,
+      celebrating: false,
+    };
   }
-  if (m.lastCompletedAt && now - m.lastCompletedAt < CELEBRATE_MS) {
-    return { label: "Just completed!", tone: "var(--chart-3)", active: true, celebrating: true };
-  }
+  if (m.lastCompletedAt && now - m.lastCompletedAt < CELEBRATE_MS)
+    return {
+      label: "Just completed!",
+      tone: "var(--chart-3)",
+      active: true,
+      celebrating: true,
+    };
   return {
     label: m.status === "paused" ? "Paused" : "Idle",
     tone: "var(--muted-foreground)",
@@ -61,9 +101,11 @@ function statusOf(m: RoomMember, now: number): MemberStatus {
   };
 }
 
+// ─────────────────────── MiniRing ───────────────────────
+
 function MiniRing({ member, now }: { member: RoomMember; now: number }) {
-  const size = 38;
-  const stroke = 4;
+  const size = 40;
+  const stroke = 3;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const target = targetMsFor(member.mode);
@@ -77,14 +119,20 @@ function MiniRing({ member, now }: { member: RoomMember; now: number }) {
       : target === 0
         ? 0
         : Math.min(1, elapsed / target);
-  // celebrating → fully filled green ring
   const progress = stat.celebrating ? 1 : baseProgress;
   const { tone, active } = stat;
 
   return (
     <div className="relative" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--secondary)" strokeWidth={stroke} />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="var(--border)"
+          strokeWidth={stroke}
+        />
         {active && (
           <circle
             cx={size / 2}
@@ -101,13 +149,21 @@ function MiniRing({ member, now }: { member: RoomMember; now: number }) {
         )}
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
-        <Avatar name={member.name} color={member.color} size={size - 12} />
+        <Avatar name={member.name} color={member.color} size={size - 10} />
       </div>
     </div>
   );
 }
 
-function WorkingOnLine({ member, isMe }: { member: RoomMember; isMe: boolean }) {
+// ─────────────────────── WorkingOnLine ───────────────────────
+
+function WorkingOnLine({
+  member,
+  isMe,
+}: {
+  member: RoomMember;
+  isMe: boolean;
+}) {
   const { saveWorkingOn } = useProfile();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(member.workingOn);
@@ -116,13 +172,12 @@ function WorkingOnLine({ member, isMe }: { member: RoomMember; isMe: boolean }) 
     if (!editing) setDraft(member.workingOn);
   }, [member.workingOn, editing]);
 
-  const text = member.workingOn;
-
-  if (!isMe) {
-    return text ? (
-      <p className="truncate text-xs text-muted-foreground">📝 {text}</p>
+  if (!isMe)
+    return member.workingOn ? (
+      <p className="truncate text-xs text-muted-foreground">
+        📝 {member.workingOn}
+      </p>
     ) : null;
-  }
 
   if (editing) {
     return (
@@ -143,7 +198,7 @@ function WorkingOnLine({ member, isMe }: { member: RoomMember; isMe: boolean }) 
           }}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
-              setDraft(text);
+              setDraft(member.workingOn);
               setEditing(false);
             }
           }}
@@ -160,55 +215,84 @@ function WorkingOnLine({ member, isMe }: { member: RoomMember; isMe: boolean }) 
       onClick={() => setEditing(true)}
       className="truncate text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
     >
-      {text ? `📝 ${text}` : "+ Add what you're working on"}
+      {member.workingOn ? (
+        `📝 ${member.workingOn}`
+      ) : (
+        <span className="opacity-50">+ what are you working on?</span>
+      )}
     </button>
   );
 }
 
-function StudyHall({ members, meId }: { members: RoomMember[]; meId: string | null }) {
+// ─────────────────────── StudyHall ───────────────────────
+
+function StudyHall({
+  members,
+  meId,
+}: {
+  members: RoomMember[];
+  meId: string | null;
+}) {
   const now = useNow(1000);
   const focusing = members.filter((m) => {
     const s = statusOf(m, now);
-    return s.active && !s.celebrating && (m.mode === "focus" || m.mode === "free");
+    return (
+      s.active && !s.celebrating && (m.mode === "focus" || m.mode === "free")
+    );
   }).length;
+
   return (
-    <Card className="p-5">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="font-semibold">Study hall</h3>
-        <span className="text-xs text-muted-foreground tabular-nums">{focusing} focusing</span>
+    <div className="h-full overflow-y-auto p-4">
+      <div className="mb-5 flex items-center justify-between">
+        <h3 className="text-sm font-semibold tracking-wide uppercase text-muted-foreground">
+          Study hall
+        </h3>
+        <span className="rounded-full bg-chart-3/15 px-2.5 py-0.5 text-xs font-medium text-chart-3 tabular-nums">
+          {focusing} focusing
+        </span>
       </div>
+
       {members.length === 0 ? (
         <p className="text-sm text-muted-foreground">Connecting…</p>
       ) : (
-        <ul className="space-y-3">
+        <ul className="space-y-2">
           {members.map((m) => {
             const { label, tone } = statusOf(m, now);
             return (
-              <li key={m.id} className="flex items-center gap-3">
+              <li
+                key={m.id}
+                className="flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-muted/40"
+              >
                 <MiniRing member={m} now={now} />
                 <div className="min-w-0 flex-1 space-y-0.5">
                   <p className="truncate text-sm font-medium">
                     {m.name}
-                    {m.id === meId && <span className="ml-1 text-xs text-muted-foreground">(you)</span>}
+                    {m.id === meId && (
+                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                        (you)
+                      </span>
+                    )}
                   </p>
-                  <p className="text-xs" style={{ color: tone }}>
+                  <p className="text-xs font-medium" style={{ color: tone }}>
                     {label}
                   </p>
                   <WorkingOnLine member={m} isMe={m.id === meId} />
                 </div>
-                <span className="self-start pt-0.5 text-xs text-muted-foreground tabular-nums">
-                  {formatMinutes(m.todayMs)}
-                </span>
+                <div className="shrink-0 text-right">
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {formatMinutes(m.todayMs)}
+                  </span>
+                </div>
               </li>
             );
           })}
         </ul>
       )}
-    </Card>
+    </div>
   );
 }
 
-// ─────────────────────── chat ───────────────────────
+// ─────────────────────── Chat helpers ───────────────────────
 
 const URL_RE = /(\bhttps?:\/\/[^\s]+)/g;
 
@@ -271,7 +355,7 @@ function buildBlocks(entries: ChatEntry[]): Block[] {
       blocks.push({
         kind: "system",
         id: e.id,
-        text: e.kind === "join" ? `${e.name} joined the room` : `${e.name} left`,
+        text: e.kind === "join" ? `${e.name} joined` : `${e.name} left`,
         at: e.at,
       });
       continue;
@@ -293,16 +377,29 @@ function buildBlocks(entries: ChatEntry[]): Block[] {
       continue;
     }
     const last = current?.messages.at(-1);
-    if (current && last && current.userId === e.userId && e.at - last.at < CLUSTER_GAP_MS) {
+    if (
+      current &&
+      last &&
+      current.userId === e.userId &&
+      e.at - last.at < CLUSTER_GAP_MS
+    ) {
       current.messages.push(e);
     } else {
       if (current) blocks.push(current);
-      current = { kind: "group", userId: e.userId, name: e.name, color: e.color, messages: [e] };
+      current = {
+        kind: "group",
+        userId: e.userId,
+        name: e.name,
+        color: e.color,
+        messages: [e],
+      };
     }
   }
   if (current) blocks.push(current);
   return blocks;
 }
+
+// ─────────────────────── ReactionRow ───────────────────────
 
 function ReactionRow({
   reactions,
@@ -339,6 +436,8 @@ function ReactionRow({
   );
 }
 
+// ─────────────────────── MessageBubble ───────────────────────
+
 function MessageBubble({
   message,
   mine,
@@ -357,18 +456,16 @@ function MessageBubble({
     <div className={cn("group relative", mine ? "self-end" : "self-start")}>
       <div
         className={cn(
-          "rounded-2xl px-3 py-1.5 text-sm",
-          mine ? "bg-primary text-primary-foreground" : "bg-secondary",
+          "rounded-2xl px-3 py-1.5 text-sm leading-relaxed",
+          mine ? "bg-primary text-primary-foreground" : "bg-muted/70",
         )}
       >
         <Linkify text={message.text} />
       </div>
       <ReactionRow reactions={reactions} meId={meId} onToggle={onReact} />
-
-      {/* reaction picker — appears on hover */}
       <div
         className={cn(
-          "absolute -top-9 z-10 flex items-center gap-0.5 rounded-full border bg-card/95 px-1 py-1 shadow-md backdrop-blur",
+          "absolute -top-9 z-10 flex items-center gap-0.5 rounded-full border bg-card/95 px-1 py-1 shadow-lg backdrop-blur",
           "opacity-0 transition-opacity group-hover:opacity-100",
           mine ? "right-0" : "left-0",
           open && "opacity-100",
@@ -386,16 +483,15 @@ function MessageBubble({
             {e}
           </button>
         ))}
-        <button
-          className="ml-0.5 flex size-6 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
-          aria-label="more reactions"
-        >
+        <button className="ml-0.5 flex size-6 items-center justify-center rounded-full text-muted-foreground hover:text-foreground">
           <SmilePlus className="size-3.5" />
         </button>
       </div>
     </div>
   );
 }
+
+// ─────────────────────── CelebrateBlockView ───────────────────────
 
 function CelebrateBlockView({
   block,
@@ -411,18 +507,19 @@ function CelebrateBlockView({
   onReact: (emoji: string) => void;
 }) {
   return (
-    <div className="self-center w-full max-w-[80%]">
-      <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
-        <span className="text-2xl">🎉</span>
+    <div className="self-center w-full max-w-[85%]">
+      <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-3">
+        <span className="text-xl">🎉</span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm">
-            <span className="font-medium" style={{ color: block.color }}>
+            <span className="font-semibold" style={{ color: block.color }}>
               {mine ? "You" : block.name}
             </span>{" "}
-            just completed a {formatMinutes(block.durationMs)} focus block
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(block.at)}
+            just finished a{" "}
+            <span className="font-medium">
+              {formatMinutes(block.durationMs)}
+            </span>{" "}
+            focus block
           </p>
         </div>
         <div className="flex items-center gap-0.5">
@@ -439,7 +536,9 @@ function CelebrateBlockView({
               >
                 <span className="text-base leading-none">{emoji}</span>
                 {(reactions[emoji]?.length ?? 0) > 0 && (
-                  <span className="tabular-nums">{reactions[emoji].length}</span>
+                  <span className="tabular-nums">
+                    {reactions[emoji].length}
+                  </span>
                 )}
               </button>
             );
@@ -449,6 +548,52 @@ function CelebrateBlockView({
     </div>
   );
 }
+
+// ─────────────────────── MessageCluster ───────────────────────
+
+function MessageCluster({
+  group,
+  mine,
+  reactions,
+  meId,
+  onReact,
+  fmt,
+}: {
+  group: MessageGroup;
+  mine: boolean;
+  reactions: Record<string, Record<string, string[]>>;
+  meId: string | null;
+  onReact: (messageId: string, emoji: string) => void;
+  fmt: Intl.DateTimeFormat;
+}) {
+  return (
+    <div className={cn("flex w-full gap-2.5", mine ? "flex-row-reverse" : "")}>
+      <Avatar name={group.name} color={group.color} size={30} />
+      <div
+        className={cn(
+          "flex max-w-[78%] flex-col gap-1",
+          mine ? "items-end" : "items-start",
+        )}
+      >
+        <span className="text-xs text-muted-foreground">
+          {mine ? "You" : group.name} · {fmt.format(group.messages[0].at)}
+        </span>
+        {group.messages.map((m) => (
+          <MessageBubble
+            key={m.id}
+            message={m}
+            mine={mine}
+            reactions={reactions[m.id] ?? {}}
+            meId={meId}
+            onReact={(emoji) => onReact(m.id, emoji)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────── Chat ───────────────────────
 
 function Chat({
   entries,
@@ -473,12 +618,16 @@ function Chat({
   const [atBottom, setAtBottom] = useState(true);
   const [newCount, setNewCount] = useState(0);
   const prevCount = useRef(entries.length);
-  const fmt = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+  const fmt = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 
   function scrollToBottom(smooth = true) {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: smooth ? "smooth" : "auto",
+    });
   }
 
   function handleScroll() {
@@ -517,12 +666,14 @@ function Chat({
         : `${typing.length} people are typing…`;
 
   return (
-    <Card className="relative flex h-full min-h-0 flex-col p-0">
-      <div className="border-b px-5 py-3">
-        <h3 className="font-semibold">Room chat</h3>
-      </div>
-
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-5 py-4">
+    <div className="h-full min-h-0 flex flex-col overflow-hidden">
+      {" "}
+      {/* scroll area */}
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-4 py-4"
+      >
         {blocks.length === 0 && (
           <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
             No messages yet — say hi 👋
@@ -530,14 +681,18 @@ function Chat({
         )}
         <div className="flex flex-col gap-4">
           {blocks.map((b) => {
-            if (b.kind === "system") {
+            if (b.kind === "system")
               return (
-                <div key={b.id} className="self-center text-xs text-muted-foreground">
-                  <span className="rounded-full bg-secondary/60 px-2.5 py-0.5">— {b.text} —</span>
+                <div
+                  key={b.id}
+                  className="self-center text-xs text-muted-foreground"
+                >
+                  <span className="rounded-full bg-muted px-2.5 py-0.5 text-[11px]">
+                    — {b.text} —
+                  </span>
                 </div>
               );
-            }
-            if (b.kind === "celebrate") {
+            if (b.kind === "celebrate")
               return (
                 <CelebrateBlockView
                   key={b.id}
@@ -548,7 +703,6 @@ function Chat({
                   onReact={(emoji) => onReact(b.id, emoji)}
                 />
               );
-            }
             return (
               <MessageCluster
                 key={b.messages[0].id}
@@ -563,24 +717,23 @@ function Chat({
           })}
         </div>
       </div>
-
-      {/* typing + jump-to-bottom */}
+      {/* jump to bottom */}
       <div className="relative">
         {!atBottom && newCount > 0 && (
           <button
             onClick={() => scrollToBottom()}
             className="absolute -top-10 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground shadow-md"
           >
-            <ArrowDown className="size-3.5" />
-            {newCount} new {newCount === 1 ? "message" : "messages"}
+            <ArrowDown className="size-3.5" /> {newCount} new{" "}
+            {newCount === 1 ? "message" : "messages"}
           </button>
         )}
-        <div className="h-5 px-5 text-xs text-muted-foreground">
+        <div className="h-5 px-4 text-xs text-muted-foreground">
           {typingLabel && <span className="animate-pulse">{typingLabel}</span>}
         </div>
       </div>
-
-      <form onSubmit={submit} className="flex gap-2 border-t p-3">
+      {/* input */}
+      <form onSubmit={submit} className="flex gap-2 border-t px-3 py-3">
         <Input
           value={text}
           onChange={(e) => {
@@ -589,64 +742,55 @@ function Chat({
           }}
           placeholder="Message the room…"
           maxLength={400}
+          className="rounded-xl bg-muted/50 text-sm focus-visible:ring-1"
         />
-        <Button type="submit" size="icon-lg" disabled={!text.trim()}>
-          <Send />
+        <Button
+          type="submit"
+          size="icon"
+          disabled={!text.trim()}
+          className="shrink-0 rounded-xl"
+        >
+          <Send className="size-4" />
         </Button>
       </form>
-    </Card>
-  );
-}
-
-function MessageCluster({
-  group,
-  mine,
-  reactions,
-  meId,
-  onReact,
-  fmt,
-}: {
-  group: MessageGroup;
-  mine: boolean;
-  reactions: Record<string, Record<string, string[]>>;
-  meId: string | null;
-  onReact: (messageId: string, emoji: string) => void;
-  fmt: Intl.DateTimeFormat;
-}) {
-  const first = group.messages[0];
-  return (
-    <div className={cn("flex w-full gap-2.5", mine ? "flex-row-reverse" : "")}>
-      <Avatar name={group.name} color={group.color} size={32} />
-      <div className={cn("flex max-w-[78%] flex-col gap-1", mine ? "items-end" : "items-start")}>
-        <span className="text-xs text-muted-foreground">
-          {mine ? "You" : group.name} · {fmt.format(first.at)}
-        </span>
-        {group.messages.map((m) => (
-          <MessageBubble
-            key={m.id}
-            message={m}
-            mine={mine}
-            reactions={reactions[m.id] ?? {}}
-            meId={meId}
-            onReact={(emoji) => onReact(m.id, emoji)}
-          />
-        ))}
-      </div>
     </div>
   );
 }
 
-// ─────────────────────── room view ───────────────────────
+// ─────────────────────── Tab system (always-mounted) ───────────────────────
+
+type TabId = "chat" | "video" | "timer";
+
+const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
+  { id: "chat", label: "Chat", icon: <MessageSquare className="size-3.5" /> },
+  { id: "video", label: "Video", icon: <Video className="size-3.5" /> },
+  { id: "timer", label: "Timer", icon: <TimerIcon className="size-3.5" /> },
+];
+
+// ─────────────────────── RoomView ───────────────────────
 
 export function RoomView({ roomId }: { roomId: string }) {
   const room = getRoom(roomId);
-  const { members, entries, reactions, typing, sendMessage, sendTyping, toggleReaction, me } = useRoom(roomId);
+  const {
+    members,
+    entries,
+    reactions,
+    typing,
+    sendMessage,
+    sendTyping,
+    toggleReaction,
+    me,
+  } = useRoom(roomId);
+  const [activeTab, setActiveTab] = useState<TabId>("chat");
 
   if (!room) {
     return (
       <div className="mx-auto w-full max-w-5xl px-4 py-16 text-center">
         <p className="text-muted-foreground">That room doesn&apos;t exist.</p>
-        <Link href="/rooms" className="mt-2 inline-block text-sm font-medium underline-offset-2 hover:underline">
+        <Link
+          href="/rooms"
+          className="mt-2 inline-block text-sm font-medium underline-offset-2 hover:underline"
+        >
           Back to all rooms
         </Link>
       </div>
@@ -657,55 +801,86 @@ export function RoomView({ roomId }: { roomId: string }) {
   const togetherMs = members.reduce((sum, m) => sum + m.todayMs, 0);
 
   return (
-    <div className="flex flex-1 flex-col">
-      {/* compact room header */}
-      <div className="border-b bg-background/60 px-4 py-3 backdrop-blur sm:px-6">
-        <Link
-          href="/rooms"
-          className="mb-2 inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ArrowLeft className="size-3.5" /> All rooms
-        </Link>
-        <div className="flex items-center gap-3">
-          <span
-            className="flex size-10 items-center justify-center rounded-xl"
-            style={{ backgroundColor: `color-mix(in oklch, ${room.accent} 20%, transparent)` }}
+    <div className="flex flex-1 min-h-0 overflow-hidden">
+      {/* ── Left rail: rooms list + now-playing footer ── */}
+      <RoomNav currentRoomId={roomId} currentRoomCount={members.length} />
+
+      {/* ── Center column ── */}
+      <div className="flex flex-1 min-w-0 min-h-0 flex-col">
+        {/* room header */}
+        <div className="flex shrink-0 items-center gap-3 border-b bg-background/80 px-4 py-3 backdrop-blur">
+          <Link
+            href="/rooms"
+            className="text-muted-foreground transition-colors hover:text-foreground lg:hidden"
+            title="All rooms"
           >
-            <Icon className="size-5" />
+            <ArrowLeft className="size-4" />
+          </Link>
+          <span
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg"
+            style={{ backgroundColor: `color-mix(in oklch, ${room.accent} 18%, transparent)` }}
+          >
+            <Icon className="size-4" style={{ color: room.accent }} />
           </span>
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-semibold tracking-tight">{room.name}</h1>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-base font-semibold tracking-tight">{room.name}</h1>
             <p className="flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1">
                 <Users className="size-3" /> {members.length} studying
               </span>
               <span className="inline-flex items-center gap-1">
-                <Clock className="size-3" /> {formatMinutes(togetherMs)} focused together today
+                <Clock className="size-3" /> {formatMinutes(togetherMs)} together today
               </span>
-              <span className="text-muted-foreground/70">· {room.vibe}</span>
+              <span className="hidden text-muted-foreground/60 sm:inline">· {room.vibe}</span>
             </p>
+          </div>
+        </div>
+
+        {/* tabs */}
+        <div className="flex shrink-0 gap-1 border-b bg-muted/20 px-2 py-1.5">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
+                activeTab === t.id
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:bg-background/50 hover:text-foreground",
+              )}
+            >
+              {t.icon}
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* tab content */}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <div className={cn("h-full min-h-0 flex flex-col", activeTab !== "chat" && "hidden")}>
+            <Chat
+              entries={entries}
+              reactions={reactions}
+              meId={me.id}
+              typing={typing}
+              onSend={sendMessage}
+              onType={sendTyping}
+              onReact={toggleReaction}
+            />
+          </div>
+
+          <div className={cn("h-full min-h-0", activeTab !== "video" && "hidden")}>
+            <VideoRoom roomId={roomId} className="h-full min-h-0" />
+          </div>
+
+          <div className={cn("h-full min-h-0 overflow-y-auto p-4", activeTab !== "timer" && "hidden")}>
+            <TimerCard />
           </div>
         </div>
       </div>
 
-      {/* body — full height split */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6 lg:p-6">
-        <Chat
-          entries={entries}
-          reactions={reactions}
-          meId={me.id}
-          typing={typing}
-          onSend={sendMessage}
-          onType={sendTyping}
-          onReact={toggleReaction}
-        />
-        <div className="flex flex-col gap-4 overflow-y-auto lg:max-h-full">
-          <VideoRoom roomId={roomId} />
-          <RoomMusic roomId={roomId} />
-          <StudyHall members={members} meId={me.id} />
-          <TimerCard />
-        </div>
-      </div>
+      {/* ── Right rail: members ── */}
+      <RoomMembersPanel members={members} meId={me.id} />
     </div>
   );
 }

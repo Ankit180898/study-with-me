@@ -31,7 +31,7 @@ export default function RootLayout({
       lang="en"
       className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col app-bg">
+      <body className="h-full flex flex-col app-bg">
         <SupabaseProvider>
           <AppShell>{children}</AppShell>
           <Toaster position="top-center" />

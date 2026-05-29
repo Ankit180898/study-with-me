@@ -15,19 +15,21 @@ import { subscribePresence } from "@/lib/supabase/presence";
 export function usePresenceCount(
   key: string,
   mockBase = 128,
-  opts: { track?: boolean } = {},
+  opts: { track?: boolean; enabled?: boolean } = {},
 ): number {
   const { supabase, userId } = useSupabase();
   const mock = useLiveCount(mockBase);
   const [count, setCount] = useState<number | null>(null);
   const track = opts.track ?? true;
+  const enabled = opts.enabled ?? true;
 
   useEffect(() => {
-    if (!supabase || !userId) return;
+    if (!enabled || !supabase || !userId) return;
     return subscribePresence(supabase, userId, key, setCount, { track });
-  }, [supabase, userId, key, track]);
+  }, [supabase, userId, key, track, enabled]);
 
-  // when Supabase is live, show the real count (0 included); mock only as offline fallback
+  // when disabled the caller is responsible for sourcing the count elsewhere
+  if (!enabled) return 0;
   if (supabase && userId) return count ?? 0;
   return mock;
 }
