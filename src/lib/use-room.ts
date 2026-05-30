@@ -172,34 +172,40 @@ export function useRoom(roomId: string) {
     });
     channelRef.current = channel;
 
+    const refreshMembers = () => {
+      const state = channel.presenceState<PresenceMeta>();
+      setMembers(
+        Object.entries(state).map(([key, metas]) => {
+          const m = metas[0];
+          return {
+            id: key,
+            name: m?.name ?? "Guest",
+            color: m?.color ?? "#6366f1",
+            mode: m?.mode ?? "focus",
+            status: m?.status ?? "idle",
+            startedAt: m?.startedAt ?? null,
+            accumulatedMs: m?.accumulatedMs ?? 0,
+            lastCompletedAt: m?.lastCompletedAt ?? null,
+            lastCompletedMs: m?.lastCompletedMs ?? null,
+            workingOn: m?.workingOn ?? "",
+            todayMs: m?.todayMs ?? 0,
+          };
+        }),
+      );
+    };
+
     channel
-      .on("presence", { event: "sync" }, () => {
-        const state = channel.presenceState<PresenceMeta>();
-        setMembers(
-          Object.entries(state).map(([key, metas]) => {
-            const m = metas[0];
-            return {
-              id: key,
-              name: m?.name ?? "Guest",
-              color: m?.color ?? "#6366f1",
-              mode: m?.mode ?? "focus",
-              status: m?.status ?? "idle",
-              startedAt: m?.startedAt ?? null,
-              accumulatedMs: m?.accumulatedMs ?? 0,
-              lastCompletedAt: m?.lastCompletedAt ?? null,
-              lastCompletedMs: m?.lastCompletedMs ?? null,
-              workingOn: m?.workingOn ?? "",
-              todayMs: m?.todayMs ?? 0,
-            };
-          }),
-        );
-      })
+      .on("presence", { event: "sync" }, refreshMembers)
       .on("presence", { event: "join" }, ({ key, newPresences }) => {
+        // belt-and-braces: refresh members from full state, in case the sync
+        // event was missed or arrived first with stale data.
+        refreshMembers();
         if (key === userId || !fresh()) return;
         const m = (newPresences[0] as unknown as PresenceMeta) ?? null;
         addSystem("join", m?.name ?? "Someone");
       })
       .on("presence", { event: "leave" }, ({ key, leftPresences }) => {
+        refreshMembers();
         if (key === userId || !fresh()) return;
         const m = (leftPresences[0] as unknown as PresenceMeta) ?? null;
         addSystem("leave", m?.name ?? "Someone");
@@ -268,6 +274,20 @@ export function useRoom(roomId: string) {
     myLastCompletedMs,
     workingOn,
   ]);
+
+  // also re-track when the tab becomes visible again — covers the case where
+  // a presence update was dropped while backgrounded, or our subscription
+  // silently dropped and reconnected without re-sending state.
+  useEffect(() => {
+    if (!connected) return;
+    function onVisible() {
+      if (document.visibilityState === "visible") {
+        channelRef.current?.track(meta.current).catch(() => {});
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [connected]);
 
   function applyReaction(messageId: string, emoji: string, uid: string, op: "add" | "remove") {
     setReactions((prev) => {
