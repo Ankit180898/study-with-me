@@ -213,10 +213,27 @@ export function useMusicQueue(roomId: string) {
   const addToQueue = useCallback(
     async (videoId: string, title?: string) => {
       if (!supabase || !userId) return;
+      // Look up the title via YouTube's free oEmbed endpoint — no key, no auth.
+      // Falls back to caller-provided title, then null (which renders the
+      // raw video id in the UI).
+      let resolvedTitle = title ?? null;
+      if (!resolvedTitle) {
+        try {
+          const res = await fetch(
+            `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&format=json`,
+          );
+          if (res.ok) {
+            const data = (await res.json()) as { title?: string };
+            if (data.title) resolvedTitle = data.title;
+          }
+        } catch {
+          /* network/CORS — leave title null */
+        }
+      }
       const { error } = await supabase.from("room_music_queue").insert({
         room_id: roomId,
         video_id: videoId,
-        title: title ?? null,
+        title: resolvedTitle,
         added_by: userId,
         added_by_name: displayName,
       });
