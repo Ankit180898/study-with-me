@@ -24,6 +24,7 @@ export function AuthDialog() {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
+  const [sentAs, setSentAs] = useState<"sync" | "signin">("sync");
   const [error, setError] = useState<string | null>(null);
 
   const isSynced = Boolean(user?.email);
@@ -48,21 +49,43 @@ export function AuthDialog() {
     if (!supabase || !email.trim()) return;
     setBusy(true);
     setError(null);
+    const trimmed = email.trim();
     try {
       if (mode === "sync") {
-        // link this email to the existing (anonymous) account — keeps the same UID
+        // Try to attach this email to the current (anonymous) account first.
         const { error } = await supabase.auth.updateUser(
-          { email: email.trim() },
+          { email: trimmed },
           { emailRedirectTo: redirectTo },
         );
-        if (error) throw error;
+        if (error) {
+          // If the email already belongs to another account, fall back to
+          // sign-in so the user lands on the existing account instead of
+          // hitting "email already in use" and being stuck. Local sessions
+          // from this device get auto-uploaded to the signed-in account by
+          // the provider's sync effect.
+          const msg = error.message.toLowerCase();
+          const looksTaken =
+            msg.includes("already") ||
+            msg.includes("exists") ||
+            msg.includes("registered");
+          if (!looksTaken) throw error;
+          const { error: otpError } = await supabase.auth.signInWithOtp({
+            email: trimmed,
+            options: { emailRedirectTo: redirectTo },
+          });
+          if (otpError) throw otpError;
+          setSentAs("signin");
+        } else {
+          setSentAs("sync");
+        }
       } else {
-        // recover an existing account on this device
+        // explicit sign-in path
         const { error } = await supabase.auth.signInWithOtp({
-          email: email.trim(),
+          email: trimmed,
           options: { emailRedirectTo: redirectTo },
         });
         if (error) throw error;
+        setSentAs("signin");
       }
       setSent(true);
     } catch (err) {
@@ -107,9 +130,17 @@ export function AuthDialog() {
                 <Mail className="size-5 text-primary" /> Check your inbox
               </DialogTitle>
               <DialogDescription>
-                We sent a magic link to <span className="font-medium text-foreground">{email}</span>.
-                Click it to {mode === "sync" ? "finish syncing" : "sign in"} — your current progress
-                stays intact.
+                We sent a magic link to{" "}
+                <span className="font-medium text-foreground">{email}</span>.{" "}
+                {sentAs === "signin" ? (
+                  <>
+                    This email is already linked to an account — click the link
+                    to sign in to it. Anything you did on this device will be
+                    merged in.
+                  </>
+                ) : (
+                  <>Click it to finish syncing — your current progress stays intact.</>
+                )}
               </DialogDescription>
             </DialogHeader>
             <Button variant="outline" onClick={() => setSent(false)}>
