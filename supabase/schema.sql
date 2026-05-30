@@ -117,3 +117,150 @@ begin
     alter publication supabase_realtime add table public.room_music;
   end if;
 end $$;
+
+-- ── Room polls (lightweight engagement) ───────────────────────────────
+create table if not exists public.polls (
+  id uuid primary key default gen_random_uuid(),
+  room_id text not null,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  name text not null,
+  color text not null,
+  question text not null check (char_length(question) between 1 and 140),
+  options text[] not null check (array_length(options, 1) between 2 and 4),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists polls_room_created_idx
+  on public.polls (room_id, created_at desc);
+
+alter table public.polls enable row level security;
+
+drop policy if exists "polls: read" on public.polls;
+create policy "polls: read"
+  on public.polls for select to authenticated using (true);
+
+drop policy if exists "polls: insert own" on public.polls;
+create policy "polls: insert own"
+  on public.polls for insert to authenticated
+  with check (auth.uid() = user_id);
+
+-- one vote per (poll, user); change via upsert
+create table if not exists public.poll_votes (
+  poll_id uuid not null references public.polls (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  option_index int not null check (option_index >= 0 and option_index < 4),
+  voted_at timestamptz not null default now(),
+  primary key (poll_id, user_id)
+);
+
+alter table public.poll_votes enable row level security;
+
+drop policy if exists "poll_votes: read" on public.poll_votes;
+create policy "poll_votes: read"
+  on public.poll_votes for select to authenticated using (true);
+
+drop policy if exists "poll_votes: insert own" on public.poll_votes;
+create policy "poll_votes: insert own"
+  on public.poll_votes for insert to authenticated
+  with check (auth.uid() = user_id);
+
+drop policy if exists "poll_votes: update own" on public.poll_votes;
+create policy "poll_votes: update own"
+  on public.poll_votes for update to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "poll_votes: delete own" on public.poll_votes;
+create policy "poll_votes: delete own"
+  on public.poll_votes for delete to authenticated
+  using (auth.uid() = user_id);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'polls'
+  ) then alter publication supabase_realtime add table public.polls;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'poll_votes'
+  ) then alter publication supabase_realtime add table public.poll_votes;
+  end if;
+end $$;
+
+-- ── Room music queue (collaborative DJ queue) ─────────────────────────
+-- room_music keeps the "now playing" state; this table is the upcoming
+-- queue. When current ends or someone skips, the oldest unplayed item
+-- gets promoted into room_music and marked played.
+create table if not exists public.room_music_queue (
+  id uuid primary key default gen_random_uuid(),
+  room_id text not null,
+  video_id text not null,
+  title text,
+  added_by uuid not null references auth.users (id) on delete cascade,
+  added_by_name text not null,
+  created_at timestamptz not null default now(),
+  played_at timestamptz
+);
+
+create index if not exists room_music_queue_room_idx
+  on public.room_music_queue (room_id, played_at, created_at);
+
+alter table public.room_music_queue enable row level security;
+
+drop policy if exists "queue: read" on public.room_music_queue;
+create policy "queue: read"
+  on public.room_music_queue for select to authenticated using (true);
+
+drop policy if exists "queue: insert own" on public.room_music_queue;
+create policy "queue: insert own"
+  on public.room_music_queue for insert to authenticated
+  with check (auth.uid() = added_by);
+
+-- anyone in the room can mark items as played (advance the queue) or remove
+drop policy if exists "queue: update any" on public.room_music_queue;
+create policy "queue: update any"
+  on public.room_music_queue for update to authenticated
+  using (true) with check (true);
+
+drop policy if exists "queue: delete any" on public.room_music_queue;
+create policy "queue: delete any"
+  on public.room_music_queue for delete to authenticated using (true);
+
+-- upvote tracking — composite PK enforces one vote per (item, user)
+create table if not exists public.queue_votes (
+  queue_id uuid not null references public.room_music_queue (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
+  primary key (queue_id, user_id)
+);
+
+alter table public.queue_votes enable row level security;
+
+drop policy if exists "queue_votes: read" on public.queue_votes;
+create policy "queue_votes: read"
+  on public.queue_votes for select to authenticated using (true);
+
+drop policy if exists "queue_votes: write own" on public.queue_votes;
+create policy "queue_votes: write own"
+  on public.queue_votes for insert to authenticated
+  with check (auth.uid() = user_id);
+
+drop policy if exists "queue_votes: delete own" on public.queue_votes;
+create policy "queue_votes: delete own"
+  on public.queue_votes for delete to authenticated
+  using (auth.uid() = user_id);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'room_music_queue'
+  ) then alter publication supabase_realtime add table public.room_music_queue;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'queue_votes'
+  ) then alter publication supabase_realtime add table public.queue_votes;
+  end if;
+end $$;

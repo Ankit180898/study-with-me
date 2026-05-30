@@ -14,6 +14,7 @@ import {
   Timer as TimerIcon,
   Video,
   LogOut,
+  BarChart3,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,9 @@ import {
   type ChatMessage,
 } from "@/lib/use-room";
 import { useJukeboxStore } from "@/lib/jukebox-store";
+import { usePolls, type Poll } from "@/lib/use-polls";
+import { PollCard } from "@/components/poll-card";
+import { PollComposer } from "@/components/poll-composer";
 import { initialsFor } from "@/lib/identity";
 import { getRoom } from "@/lib/rooms";
 import { formatMinutes } from "@/lib/time";
@@ -344,7 +348,28 @@ interface CelebrateBlock {
   durationMs: number;
   at: number;
 }
-type Block = MessageGroup | SystemBlock | CelebrateBlock;
+interface PollBlock {
+  kind: "poll";
+  id: string;
+  poll: Poll;
+  at: number;
+}
+type Block = MessageGroup | SystemBlock | CelebrateBlock | PollBlock;
+
+function timeOfBlock(b: Block): number {
+  if (b.kind === "system" || b.kind === "celebrate" || b.kind === "poll") return b.at;
+  return b.messages[0].at;
+}
+
+function mergePolls(blocks: Block[], polls: Poll[]): Block[] {
+  const pollBlocks: PollBlock[] = polls.map((p) => ({
+    kind: "poll",
+    id: p.id,
+    poll: p,
+    at: p.createdAt,
+  }));
+  return [...blocks, ...pollBlocks].sort((a, b) => timeOfBlock(a) - timeOfBlock(b));
+}
 
 function buildBlocks(entries: ChatEntry[]): Block[] {
   const blocks: Block[] = [];
@@ -606,6 +631,11 @@ function Chat({
   onSend,
   onType,
   onReact,
+  polls,
+  pollCounts,
+  pollVotes,
+  onVote,
+  onCreatePoll,
 }: {
   entries: ChatEntry[];
   reactions: Record<string, Record<string, string[]>>;
@@ -614,8 +644,17 @@ function Chat({
   onSend: (text: string) => void;
   onType: () => void;
   onReact: (messageId: string, emoji: string) => void;
+  polls: Poll[];
+  pollCounts: Record<string, number[]>;
+  pollVotes: Record<string, Record<string, number>>;
+  onVote: (pollId: string, optionIndex: number) => void;
+  onCreatePoll: (question: string, options: string[]) => void;
 }) {
-  const blocks = useMemo(() => buildBlocks(entries), [entries]);
+  const blocks = useMemo(
+    () => mergePolls(buildBlocks(entries), polls),
+    [entries, polls],
+  );
+  const [composerOpen, setComposerOpen] = useState(false);
   const [text, setText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -706,6 +745,21 @@ function Chat({
                   onReact={(emoji) => onReact(b.id, emoji)}
                 />
               );
+            if (b.kind === "poll") {
+              const myVote =
+                meId && pollVotes[b.poll.id]?.[meId] !== undefined
+                  ? pollVotes[b.poll.id][meId]
+                  : null;
+              return (
+                <PollCard
+                  key={b.id}
+                  poll={b.poll}
+                  counts={pollCounts[b.poll.id] ?? []}
+                  myVote={myVote}
+                  onVote={(idx) => onVote(b.poll.id, idx)}
+                />
+              );
+            }
             return (
               <MessageCluster
                 key={b.messages[0].id}
@@ -737,6 +791,16 @@ function Chat({
       </div>
       {/* input */}
       <form onSubmit={submit} className="flex gap-2 border-t px-3 py-3">
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          title="Create poll"
+          onClick={() => setComposerOpen(true)}
+          className="shrink-0 rounded-xl text-muted-foreground hover:text-foreground"
+        >
+          <BarChart3 className="size-4" />
+        </Button>
         <Input
           value={text}
           onChange={(e) => {
@@ -756,6 +820,11 @@ function Chat({
           <Send className="size-4" />
         </Button>
       </form>
+      <PollComposer
+        open={composerOpen}
+        onClose={() => setComposerOpen(false)}
+        onCreate={onCreatePoll}
+      />
     </div>
   );
 }
@@ -784,6 +853,8 @@ export function RoomView({ roomId }: { roomId: string }) {
     toggleReaction,
     me,
   } = useRoom(roomId);
+  const { polls, counts: pollCounts, votes: pollVotes, createPoll, vote: votePoll } =
+    usePolls(roomId);
   const [activeTab, setActiveTab] = useState<TabId>("chat");
   const router = useRouter();
   const joinJukebox = useJukeboxStore((s) => s.join);
@@ -892,6 +963,11 @@ export function RoomView({ roomId }: { roomId: string }) {
               onSend={sendMessage}
               onType={sendTyping}
               onReact={toggleReaction}
+              polls={polls}
+              pollCounts={pollCounts}
+              pollVotes={pollVotes}
+              onVote={votePoll}
+              onCreatePoll={createPoll}
             />
           </div>
 

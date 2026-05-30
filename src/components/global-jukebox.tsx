@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useJukeboxStore } from "@/lib/jukebox-store";
 import { useRoomMusic } from "@/lib/use-room-music";
+import { useSupabase } from "@/lib/supabase/provider";
+import { advanceQueue } from "@/lib/use-music-queue";
 import { loadYouTubeApi, type YTPlayer } from "@/lib/youtube";
 
 /**
@@ -18,6 +20,7 @@ export function GlobalJukebox() {
 
 function Player({ roomId }: { roomId: string }) {
   const { state } = useRoomMusic(roomId);
+  const { supabase, userId } = useSupabase();
   const tunedIn = useJukeboxStore((s) => s.tunedIn);
   const setTitle = useJukeboxStore((s) => s.setTitle);
   const setPlayer = useJukeboxStore((s) => s.setPlayer);
@@ -25,6 +28,13 @@ function Player({ roomId }: { roomId: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
   const [ready, setReady] = useState(false);
+  // keep latest deps for the YT callback, which can't re-bind without a remount.
+  const advanceRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    advanceRef.current = () => {
+      if (supabase && userId) void advanceQueue(supabase, roomId, userId);
+    };
+  }, [supabase, userId, roomId]);
 
   useEffect(() => {
     let alive = true;
@@ -41,9 +51,11 @@ function Player({ roomId }: { roomId: string }) {
             setReady(true);
             if (player) setPlayer(player);
           },
-          onStateChange: () => {
+          onStateChange: (e) => {
             const t = player?.getVideoData?.()?.title;
             if (t) setTitle(t);
+            // ENDED = 0 — pop the next queue item into now-playing
+            if (e.data === 0) advanceRef.current();
           },
         },
       });
