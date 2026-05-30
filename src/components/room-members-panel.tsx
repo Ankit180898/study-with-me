@@ -93,9 +93,12 @@ function WorkingOnLine({ member, isMe }: { member: RoomMember; isMe: boolean }) 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(member.workingOn);
 
+  // Only sync local draft when the upstream prop *actually* changes —
+  // don't reset on editing toggle, otherwise we'd overwrite the user's
+  // typed value with the still-stale parent prop the moment they commit.
   useEffect(() => {
-    if (!editing) setDraft(member.workingOn);
-  }, [member.workingOn, editing]);
+    setDraft(member.workingOn);
+  }, [member.workingOn]);
 
   if (!isMe) {
     return member.workingOn ? (
@@ -135,6 +138,11 @@ function WorkingOnLine({ member, isMe }: { member: RoomMember; isMe: boolean }) 
     );
   }
 
+  // Display `draft` (local, instant) rather than `member.workingOn` (prop,
+  // arrives after useProfile → useRoom → RoomMembersPanel re-render cascade),
+  // so the new value appears the moment the user commits.
+  const shown = draft || member.workingOn;
+
   return (
     <button
       type="button"
@@ -145,8 +153,8 @@ function WorkingOnLine({ member, isMe }: { member: RoomMember; isMe: boolean }) 
       className="block w-full cursor-pointer truncate rounded-md px-1 py-0.5 text-left text-xs text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
       title="Click to edit"
     >
-      {member.workingOn ? (
-        `📝 ${member.workingOn}`
+      {shown ? (
+        `📝 ${shown}`
       ) : (
         <span className="opacity-60">＋ what are you working on?</span>
       )}
