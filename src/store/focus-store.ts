@@ -65,7 +65,16 @@ export function elapsedMs(s: Pick<FocusState, "status" | "startedAt" | "accumula
 }
 
 function uid(): string {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  // Must be a valid UUID — the Supabase `sessions.id` column is `uuid`.
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  // Fallback: RFC 4122 v4-ish from Math.random (older browsers / SSR).
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
 export const useFocusStore = create<FocusState>()(

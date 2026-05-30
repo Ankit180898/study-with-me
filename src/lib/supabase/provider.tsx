@@ -75,7 +75,17 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
       try {
         const remote = await fetchSessions(supabase, userId);
         const remoteIds = new Set(remote.map((s) => s.id));
-        const local = useFocusStore.getState().sessions;
+        // Migrate any legacy non-UUID ids (old `uid()` returned random base36)
+        // so the Supabase `uuid` column doesn't reject them.
+        const UUID_RE =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        const localRaw = useFocusStore.getState().sessions;
+        const local = localRaw.map((s) =>
+          UUID_RE.test(s.id) ? s : { ...s, id: crypto.randomUUID() },
+        );
+        if (local.some((s, i) => s.id !== localRaw[i].id)) {
+          useFocusStore.getState().setSessions(local);
+        }
         const localOnly = local.filter((s) => !remoteIds.has(s.id));
         if (localOnly.length) await insertSessions(supabase, userId, localOnly);
 
