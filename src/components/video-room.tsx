@@ -1,7 +1,7 @@
 "use client";
 
 import "@livekit/components-styles";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -34,44 +34,90 @@ type State =
 function ControlBar({ onLeave }: { onLeave: () => void }) {
   const { localParticipant, isCameraEnabled, isMicrophoneEnabled } =
     useLocalParticipant();
+  const btn =
+    "flex size-11 items-center justify-center rounded-full transition-colors";
   return (
-    <div className="flex items-center justify-center gap-2 border-t bg-card/80 px-4 py-3 backdrop-blur">
-      <Button
-        size="sm"
-        variant={isCameraEnabled ? "secondary" : "outline"}
-        onClick={() => localParticipant.setCameraEnabled(!isCameraEnabled)}
-        title={isCameraEnabled ? "Turn camera off" : "Turn camera on"}
-      >
-        {isCameraEnabled ? <Video /> : <VideoOff />}
-        {isCameraEnabled ? "Camera on" : "Camera off"}
-      </Button>
-      <Button
-        size="sm"
-        variant={isMicrophoneEnabled ? "secondary" : "outline"}
-        onClick={() =>
-          localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled)
-        }
-        title={isMicrophoneEnabled ? "Mute" : "Unmute"}
-      >
-        {isMicrophoneEnabled ? <Mic /> : <MicOff />}
-        {isMicrophoneEnabled ? "Mic on" : "Muted"}
-      </Button>
-      <span className="mx-2 h-5 w-px bg-border" aria-hidden />
-      <Button size="sm" variant="destructive" onClick={onLeave}>
-        <LogOut /> Leave
-      </Button>
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center pb-5">
+      <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-zinc-900/85 px-3 py-2 shadow-lg ring-1 ring-white/5 backdrop-blur">
+        <button
+          onClick={() => localParticipant.setCameraEnabled(!isCameraEnabled)}
+          title={isCameraEnabled ? "Turn camera off" : "Turn camera on"}
+          className={cn(
+            btn,
+            isCameraEnabled
+              ? "bg-zinc-700/70 text-white hover:bg-zinc-700"
+              : "bg-red-500/90 text-white hover:bg-red-500",
+          )}
+        >
+          {isCameraEnabled ? <Video className="size-5" /> : <VideoOff className="size-5" />}
+        </button>
+        <button
+          onClick={() =>
+            localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled)
+          }
+          title={isMicrophoneEnabled ? "Mute" : "Unmute"}
+          className={cn(
+            btn,
+            isMicrophoneEnabled
+              ? "bg-zinc-700/70 text-white hover:bg-zinc-700"
+              : "bg-red-500/90 text-white hover:bg-red-500",
+          )}
+        >
+          {isMicrophoneEnabled ? <Mic className="size-5" /> : <MicOff className="size-5" />}
+        </button>
+        <button
+          onClick={onLeave}
+          title="Leave"
+          className={cn(btn, "bg-red-600 text-white hover:bg-red-500")}
+        >
+          <LogOut className="size-5" />
+        </button>
+      </div>
     </div>
   );
 }
 
-/** Adaptive grid that fills the available area. */
-function gridClassFor(count: number): string {
-  if (count <= 1) return "grid-cols-1 grid-rows-1";
-  if (count === 2) return "grid-cols-2 grid-rows-1";
-  if (count <= 4) return "grid-cols-2 grid-rows-2";
-  if (count <= 6) return "grid-cols-3 grid-rows-2";
-  if (count <= 9) return "grid-cols-3 grid-rows-3";
-  return "grid-cols-4 grid-rows-3";
+/**
+ * Meet/Zoom-style layout: each tile is 16:9, the grid picks rows×cols
+ * that maximize tile size for the container's current shape, then centers.
+ */
+const TILE_AR = 16 / 9;
+const GAP = 14;
+const PAD = 24;
+
+function useOptimalTileLayout(count: number) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState({ cols: 1, w: 0, h: 0 });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || count === 0) return;
+
+    const recalc = () => {
+      const W = el.clientWidth - PAD * 2;
+      const H = el.clientHeight - PAD * 2;
+      if (W <= 0 || H <= 0) return;
+
+      let best = { cols: 1, w: 0, h: 0 };
+      for (let cols = 1; cols <= count; cols++) {
+        const rows = Math.ceil(count / cols);
+        const maxTileW = (W - (cols - 1) * GAP) / cols;
+        const maxTileH = (H - (rows - 1) * GAP) / rows;
+        // fit 16:9 inside the (maxTileW, maxTileH) cell
+        const w = Math.min(maxTileW, maxTileH * TILE_AR);
+        const h = w / TILE_AR;
+        if (w > best.w) best = { cols, w, h };
+      }
+      setLayout(best);
+    };
+
+    recalc();
+    const ro = new ResizeObserver(recalc);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [count]);
+
+  return { containerRef, ...layout };
 }
 
 function Tiles() {
@@ -79,6 +125,7 @@ function Tiles() {
     [{ source: Track.Source.Camera, withPlaceholder: true }],
     { onlySubscribed: false },
   );
+  const { containerRef, cols, w, h } = useOptimalTileLayout(tracks.length);
 
   if (tracks.length === 0) {
     return (
@@ -88,41 +135,34 @@ function Tiles() {
     );
   }
 
-  // Single tile — fill the entire stage (Meet/Zoom 1-person view)
-  if (tracks.length === 1) {
-    return (
-      <div className="relative h-full w-full overflow-hidden bg-black">
-        <ParticipantTile
-          key={`${tracks[0].publication?.trackSid ?? "ph"}-${tracks[0].participant.identity}`}
-          trackRef={tracks[0]}
-          className="absolute inset-0 !h-full !w-full !bg-zinc-900"
-          style={{ aspectRatio: "auto" }}
-        />
-      </div>
-    );
-  }
-
   return (
     <div
-      className={cn(
-        "grid h-full w-full gap-3 bg-black p-4",
-        gridClassFor(tracks.length),
-      )}
+      ref={containerRef}
+      className="relative flex h-full w-full items-center justify-center bg-black"
+      style={{ padding: PAD }}
     >
-      {tracks.map((trackRef) => (
-        <div
-          key={`${trackRef.publication?.trackSid ?? "ph"}-${trackRef.participant.identity}`}
-          className="relative h-full w-full overflow-hidden rounded-xl bg-zinc-900"
-        >
-          {/* absolute positioning ignores LiveKit's default 16:9 aspect-ratio on the tile,
-              so each tile fills its grid cell (Meet/Zoom-style cover) */}
-          <ParticipantTile
-            trackRef={trackRef}
-            className="absolute inset-0 !h-full !w-full"
-            style={{ aspectRatio: "auto" }}
-          />
-        </div>
-      ))}
+      <div
+        className="grid"
+        style={{
+          gap: GAP,
+          gridTemplateColumns: `repeat(${cols}, ${w}px)`,
+          gridAutoRows: `${h}px`,
+        }}
+      >
+        {tracks.map((trackRef) => (
+          <div
+            key={`${trackRef.publication?.trackSid ?? "ph"}-${trackRef.participant.identity}`}
+            className="relative overflow-hidden rounded-xl bg-zinc-900"
+            style={{ width: w, height: h }}
+          >
+            <ParticipantTile
+              trackRef={trackRef}
+              className="absolute inset-0 !h-full !w-full"
+              style={{ aspectRatio: "auto" }}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

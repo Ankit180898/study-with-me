@@ -52,34 +52,39 @@ export function WeeklyChart() {
         </div>
         <p className="text-sm text-muted-foreground tabular-nums">{total} min total</p>
       </div>
-      <div className="h-44">
+      <div className="h-52 [&_.recharts-surface]:outline-none [&_*:focus]:outline-none">
         {mounted && (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: -28 }}>
-              <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 3" />
+            <BarChart data={data} margin={{ top: 12, right: 8, bottom: 0, left: -24 }}>
+              <defs>
+                <linearGradient id="bar-active" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--primary)" stopOpacity={1} />
+                  <stop offset="100%" stopColor="var(--chart-2)" stopOpacity={0.85} />
+                </linearGradient>
+                <linearGradient id="bar-quiet" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.55} />
+                  <stop offset="100%" stopColor="var(--chart-2)" stopOpacity={0.45} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 3" strokeOpacity={0.5} />
               <XAxis
                 dataKey="label"
                 tickLine={false}
                 axisLine={false}
                 tick={{ fill: "var(--muted-foreground)", fontSize: 12 }}
+                dy={4}
               />
               <YAxis
-                width={48}
+                width={44}
                 tickLine={false}
                 axisLine={false}
                 allowDecimals={false}
                 tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
               />
-              <Tooltip cursor={{ fill: "var(--secondary)", opacity: 0.4 }} content={<ChartTooltip />} />
-              <Bar
-                dataKey="minutes"
-                radius={[6, 6, 6, 6]}
-                maxBarSize={40}
-                minPointSize={3}
-                background={{ fill: "var(--secondary)", radius: 6, opacity: 0.5 }}
-              >
+              <Tooltip cursor={{ fill: "var(--primary)", opacity: 0.08 }} content={<ChartTooltip />} />
+              <Bar dataKey="minutes" radius={[8, 8, 2, 2]} maxBarSize={44}>
                 {data.map((d, i) => (
-                  <Cell key={i} fill={d.isToday ? "var(--primary)" : "var(--chart-2)"} />
+                  <Cell key={i} fill={d.isToday ? "url(#bar-active)" : "url(#bar-quiet)"} />
                 ))}
               </Bar>
             </BarChart>

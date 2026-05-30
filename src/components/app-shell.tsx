@@ -17,12 +17,44 @@ const NAV = [
   { href: "/rooms", label: "Live rooms", icon: Users },
 ];
 
+function LogoMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 64 64" className={className} aria-hidden>
+      <defs>
+        <linearGradient id="logo-bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#6366f1" />
+          <stop offset="100%" stopColor="#a855f7" />
+        </linearGradient>
+        <linearGradient id="logo-sheen" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.22" />
+          <stop offset="55%" stopColor="#ffffff" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <rect width="64" height="64" rx="14" fill="url(#logo-bg)" />
+      <rect width="64" height="64" rx="14" fill="url(#logo-sheen)" />
+      <g fill="#ffffff">
+        <path d="M 11 23 Q 22 18.5, 32 23 L 32 47 Q 22 42.5, 11 47 Z" />
+        <path d="M 53 23 Q 42 18.5, 32 23 L 32 47 Q 42 42.5, 53 47 Z" />
+      </g>
+      <g stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" opacity={0.55}>
+        <line x1="14" y1="30" x2="28" y2="29" />
+        <line x1="14" y1="35" x2="28" y2="34" />
+        <line x1="14" y1="40" x2="28" y2="39" />
+        <line x1="36" y1="29" x2="50" y2="30" />
+        <line x1="36" y1="34" x2="50" y2="35" />
+        <line x1="36" y1="39" x2="50" y2="40" />
+        <line x1="32" y1="23" x2="32" y2="47" />
+      </g>
+      <circle cx="50" cy="14" r="6.5" fill="#ffffff" />
+      <circle cx="50" cy="14" r="4.5" fill="#22c55e" />
+    </svg>
+  );
+}
+
 function Logo() {
   return (
     <Link href="/" className="flex items-center gap-2.5">
-      <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">
-        S
-      </span>
+      <LogoMark className="size-8 rounded-lg" />
       <span className="text-[15px] font-semibold tracking-tight">Study with me</span>
     </Link>
   );

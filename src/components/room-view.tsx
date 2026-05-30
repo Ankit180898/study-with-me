@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Send,
@@ -12,6 +13,7 @@ import {
   MessageSquare,
   Timer as TimerIcon,
   Video,
+  LogOut,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,6 +28,7 @@ import {
   type ChatEntry,
   type ChatMessage,
 } from "@/lib/use-room";
+import { useJukeboxStore } from "@/lib/jukebox-store";
 import { initialsFor } from "@/lib/identity";
 import { getRoom } from "@/lib/rooms";
 import { formatMinutes } from "@/lib/time";
@@ -782,6 +785,17 @@ export function RoomView({ roomId }: { roomId: string }) {
     me,
   } = useRoom(roomId);
   const [activeTab, setActiveTab] = useState<TabId>("chat");
+  const router = useRouter();
+  const joinJukebox = useJukeboxStore((s) => s.join);
+  const leaveJukebox = useJukeboxStore((s) => s.leave);
+  useEffect(() => {
+    joinJukebox(roomId);
+  }, [roomId, joinJukebox]);
+
+  function leaveRoom() {
+    leaveJukebox();
+    router.push("/rooms");
+  }
 
   if (!room) {
     return (
@@ -802,8 +816,10 @@ export function RoomView({ roomId }: { roomId: string }) {
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
-      {/* ── Left rail: rooms list + now-playing footer ── */}
-      <RoomNav currentRoomId={roomId} currentRoomCount={members.length} />
+      {/* ── Left rail: rooms list + now-playing footer (hidden in video mode for full-bleed canvas) ── */}
+      {activeTab !== "video" && (
+        <RoomNav currentRoomId={roomId} currentRoomCount={members.length} />
+      )}
 
       {/* ── Center column ── */}
       <div className="flex flex-1 min-w-0 min-h-0 flex-col">
@@ -834,6 +850,16 @@ export function RoomView({ roomId }: { roomId: string }) {
               <span className="hidden text-muted-foreground/60 sm:inline">· {room.vibe}</span>
             </p>
           </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={leaveRoom}
+            title="Leave room — stops music and returns to all rooms"
+            className="shrink-0 text-muted-foreground hover:text-destructive"
+          >
+            <LogOut className="size-4" />
+            <span className="hidden sm:inline">Leave</span>
+          </Button>
         </div>
 
         {/* tabs */}
@@ -879,8 +905,10 @@ export function RoomView({ roomId }: { roomId: string }) {
         </div>
       </div>
 
-      {/* ── Right rail: members ── */}
-      <RoomMembersPanel members={members} meId={me.id} />
+      {/* ── Right rail: members (hidden in video mode so the call goes edge-to-edge) ── */}
+      {activeTab !== "video" && (
+        <RoomMembersPanel members={members} meId={me.id} />
+      )}
     </div>
   );
 }

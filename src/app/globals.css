@@ -154,3 +154,8 @@
 .live-dot {
   animation: pulse-ring 1.8s ease-in-out infinite;
 }
+
+/* Jukebox-pill equalizer bars */
+@keyframes bar1 { 0%, 100% { height: 4px; } 50% { height: 14px; } }
+@keyframes bar2 { 0%, 100% { height: 12px; } 50% { height: 5px; } }
+@keyframes bar3 { 0%, 100% { height: 8px; } 50% { height: 15px; } }

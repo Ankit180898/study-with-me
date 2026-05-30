@@ -1,85 +1,60 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Music, Play, Pause, Headphones, AlertCircle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useRoomMusic } from "@/lib/use-room-music";
-import { loadYouTubeApi, parseYouTubeId, type YTPlayer } from "@/lib/youtube";
+import { useJukeboxStore } from "@/lib/jukebox-store";
+import { parseYouTubeId } from "@/lib/youtube";
 
-const TUNED_KEY = "study-with-me:tuned-in";
-
+/**
+ * Inline room-music panel rendered in the room rail. The actual YouTube
+ * iframe lives in <GlobalJukebox /> (root layout), so audio persists when
+ * the user navigates away from the room.
+ */
 export function RoomMusic({ roomId }: { roomId: string }) {
   const { state, setTrack, togglePlayback } = useRoomMusic(roomId);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<YTPlayer | null>(null);
-  const [ready, setReady] = useState(false);
-  const [title, setTitle] = useState<string>("");
-  const [tunedIn, setTunedIn] = useState(false);
+  const tunedIn = useJukeboxStore((s) => s.tunedIn);
+  const setTunedIn = useJukeboxStore((s) => s.setTunedIn);
+  const title = useJukeboxStore((s) => s.title);
+  const setInlineMounted = useJukeboxStore((s) => s.setInlineMounted);
+
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // tell the global jukebox that the inline music panel is on screen;
+  // the floating pill uses this to suppress itself.
   useEffect(() => {
-    setTunedIn(sessionStorage.getItem(TUNED_KEY) === "1");
-  }, []);
+    setInlineMounted(true);
+    return () => setInlineMounted(false);
+  }, [setInlineMounted]);
 
-  // build the player once
-  useEffect(() => {
-    let alive = true;
-    let player: YTPlayer | null = null;
-
-    loadYouTubeApi().then((YT) => {
-      if (!alive || !containerRef.current) return;
-      player = new YT.Player(containerRef.current, {
-        width: "100%",
-        height: "100%",
-        playerVars: { rel: 0, modestbranding: 1, playsinline: 1, autoplay: 0, controls: 1 },
-        events: {
-          onReady: () => setReady(true),
-          onStateChange: () => {
-            const t = player?.getVideoData().title;
-            if (t) setTitle(t);
-          },
-        },
-      });
-      playerRef.current = player;
-    });
-
-    return () => {
-      alive = false;
+  // Synchronous handlers — call playVideo/pauseVideo *inside* the click so
+  // browsers count it as user-gesture-driven (autoplay policy).
+  function handleTuneIn() {
+    setTunedIn(true);
+    const p = useJukeboxStore.getState().player;
+    if (p && state.videoId) {
       try {
-        player?.destroy();
+        // loadVideoById(id, 0) — fresh start, ignores stale startedAt
+        // so a row from hours ago can't seek past the end of the video.
+        p.loadVideoById(state.videoId, 0);
       } catch {
         /* ignore */
       }
-      playerRef.current = null;
-    };
-  }, []);
-
-  // reflect remote state into the player
-  useEffect(() => {
-    const p = playerRef.current;
-    if (!p || !ready || !state.videoId) return;
-
-    const offsetSec =
-      !state.paused && state.startedAt
-        ? Math.max(0, (Date.now() - state.startedAt) / 1000)
-        : 0;
-
-    const current = p.getVideoData().video_id;
-    const newTrack = current !== state.videoId;
-
-    if (newTrack) {
-      if (state.paused || !tunedIn) p.cueVideoById(state.videoId, offsetSec);
-      else p.loadVideoById(state.videoId, offsetSec);
-    } else if (state.paused) {
-      p.pauseVideo();
-    } else if (tunedIn) {
-      p.seekTo(offsetSec, true);
-      p.playVideo();
     }
-  }, [ready, tunedIn, state.videoId, state.paused, state.startedAt]);
+  }
+
+  function handleToggle() {
+    const p = useJukeboxStore.getState().player;
+    if (p) {
+      if (state.paused) p.playVideo();
+      else p.pauseVideo();
+    }
+    void togglePlayback();
+  }
 
   function handleSet(e: React.FormEvent) {
     e.preventDefault();
@@ -93,17 +68,6 @@ export function RoomMusic({ roomId }: { roomId: string }) {
     void setTrack(id);
   }
 
-  function tuneIn() {
-    sessionStorage.setItem(TUNED_KEY, "1");
-    setTunedIn(true);
-    // user gesture: unblock audio + start if a track is loaded and playing
-    if (playerRef.current && state.videoId && !state.paused) {
-      const offset = state.startedAt ? Math.max(0, (Date.now() - state.startedAt) / 1000) : 0;
-      playerRef.current.seekTo(offset, true);
-      playerRef.current.playVideo();
-    }
-  }
-
   const hasTrack = !!state.videoId;
 
   return (
@@ -113,44 +77,37 @@ export function RoomMusic({ roomId }: { roomId: string }) {
         <h3 className="text-sm font-semibold">Room music</h3>
         {hasTrack && (
           <span className="ml-auto text-xs text-muted-foreground">
-            {state.paused ? "Paused" : "Playing"}
+            {state.paused ? "Paused" : tunedIn ? "Playing" : "Cued"}
           </span>
         )}
       </div>
 
-      <div className="relative aspect-video w-full bg-black/40">
-        <div ref={containerRef} className="absolute inset-0" />
-        {hasTrack && !tunedIn && (
-          <button
-            onClick={tuneIn}
-            className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 text-sm font-medium text-white transition-colors hover:bg-black/60"
-          >
-            <Headphones className="size-6" />
-            Tune in
-            <span className="text-xs text-white/70">click once to enable audio</span>
-          </button>
-        )}
-        {!hasTrack && (
-          <div className="absolute inset-0 flex items-center justify-center text-center text-sm text-muted-foreground">
-            No track yet — paste a YouTube link below.
-          </div>
-        )}
-      </div>
-
-      {hasTrack && (
-        <div className="flex items-center gap-2 border-t px-4 py-2.5">
-          <Button
-            size="sm"
-            variant={state.paused ? "default" : "secondary"}
-            onClick={togglePlayback}
-          >
-            {state.paused ? <Play className="fill-current" /> : <Pause />}
-            {state.paused ? "Play" : "Pause"}
-          </Button>
-          <p className="ml-1 line-clamp-1 flex-1 text-xs text-muted-foreground" title={title}>
+      {hasTrack ? (
+        <div className="px-4 py-3">
+          <p className="line-clamp-2 text-sm font-medium" title={title}>
             {title || "Loading…"}
           </p>
+          <div className="mt-2.5 flex items-center gap-2">
+            {!tunedIn ? (
+              <Button size="sm" onClick={handleTuneIn}>
+                <Headphones className="size-4" /> Tune in
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant={state.paused ? "default" : "secondary"}
+                onClick={handleToggle}
+              >
+                {state.paused ? <Play className="fill-current" /> : <Pause />}
+                {state.paused ? "Play" : "Pause"}
+              </Button>
+            )}
+          </div>
         </div>
+      ) : (
+        <p className="px-4 py-4 text-center text-xs text-muted-foreground">
+          No track yet — paste a YouTube link below.
+        </p>
       )}
 
       <form onSubmit={handleSet} className="flex gap-2 border-t p-3">

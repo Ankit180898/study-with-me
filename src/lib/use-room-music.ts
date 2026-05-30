@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { useSupabase } from "@/lib/supabase/provider";
 
 export interface RoomMusicState {
@@ -41,6 +41,9 @@ const EMPTY: RoomMusicState = {
 export function useRoomMusic(roomId: string) {
   const { supabase, userId } = useSupabase();
   const [state, setState] = useState<RoomMusicState>(EMPTY);
+  // unique per consumer so multiple hook callers don't collide on
+  // supabase.channel() (it dedupes by topic and rejects late .on() calls).
+  const instanceId = useId();
 
   useEffect(() => {
     if (!supabase) return;
@@ -56,7 +59,7 @@ export function useRoomMusic(roomId: string) {
     })();
 
     const channel = supabase
-      .channel(`music:${roomId}`)
+      .channel(`music:${roomId}:${instanceId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "room_music", filter: `room_id=eq.${roomId}` },
@@ -96,16 +99,24 @@ export function useRoomMusic(roomId: string) {
   const togglePlayback = useCallback(async () => {
     if (!supabase || !userId || !state.videoId) return;
     const nowPaused = !state.paused;
-    const now = new Date().toISOString();
+    const nowIso = new Date().toISOString();
     // when resuming, reset startedAt so others can sync from "now"
-    const startedAt = nowPaused ? state.startedAt : now;
+    const startedAt = nowPaused ? state.startedAt : Date.now();
+    // optimistic local update so UI flips instantly without waiting on the
+    // supabase round-trip; postgres_changes will reconcile shortly after.
+    setState((s) => ({
+      ...s,
+      paused: nowPaused,
+      startedAt,
+      updatedAt: Date.now(),
+    }));
     const { error } = await supabase.from("room_music").upsert(
       {
         room_id: roomId,
         video_id: state.videoId,
         paused: nowPaused,
-        started_at: startedAt,
-        updated_at: now,
+        started_at: startedAt ? new Date(startedAt).toISOString() : null,
+        updated_at: nowIso,
         updated_by: userId,
       },
       { onConflict: "room_id" },

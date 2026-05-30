@@ -26,12 +26,16 @@ function intensityFor(ms: number, max: number): Cell["intensity"] {
 }
 
 const SHADES: Record<Cell["intensity"], string> = {
-  0: "var(--secondary)",
-  1: "color-mix(in oklch, var(--primary) 18%, transparent)",
-  2: "color-mix(in oklch, var(--primary) 38%, transparent)",
-  3: "color-mix(in oklch, var(--primary) 65%, transparent)",
+  0: "color-mix(in oklch, var(--foreground) 6%, transparent)",
+  1: "color-mix(in oklch, var(--primary) 28%, transparent)",
+  2: "color-mix(in oklch, var(--primary) 52%, transparent)",
+  3: "color-mix(in oklch, var(--primary) 78%, transparent)",
   4: "var(--primary)",
 };
+
+const CELL = 14; // px square
+const GAP = 3;
+const STRIDE = CELL + GAP;
 
 const MONTH_FMT = new Intl.DateTimeFormat(undefined, { month: "short" });
 const FULL_DATE_FMT = new Intl.DateTimeFormat(undefined, {
@@ -103,33 +107,46 @@ export function FocusHeatmap() {
 
       <div className="overflow-x-auto">
         <div className="inline-block">
-          {/* month labels */}
-          <div className="relative mb-1 ml-7 h-3 text-[10px] text-muted-foreground" style={{ width: WEEKS * 14 }}>
-            {monthLabels.map((m) => (
-              <span key={`${m.col}-${m.label}`} className="absolute" style={{ left: m.col * 14 }}>
-                {m.label}
-              </span>
-            ))}
+          {/* month labels — skip any label within 3 cols of the previous so they don't overlap */}
+          <div
+            className="relative mb-2 ml-8 h-3 text-[11px] font-medium tracking-wide text-muted-foreground/80"
+            style={{ width: WEEKS * STRIDE }}
+          >
+            {monthLabels
+              .filter((m, i, arr) => i === 0 || m.col - arr[i - 1].col >= 3)
+              .map((m) => (
+                <span key={`${m.col}-${m.label}`} className="absolute" style={{ left: m.col * STRIDE }}>
+                  {m.label}
+                </span>
+              ))}
           </div>
 
-          <div className="flex gap-1">
+          <div className="flex" style={{ gap: GAP }}>
             {/* day-of-week labels (Mon, Wed, Fri shown) */}
-            <div className="mr-1 flex flex-col gap-1 text-[10px] text-muted-foreground">
+            <div className="mr-1.5 flex flex-col text-[11px] text-muted-foreground/70" style={{ gap: GAP }}>
               {["", "Mon", "", "Wed", "", "Fri", ""].map((d, i) => (
-                <div key={i} className="flex h-3 items-center">
+                <div key={i} className="flex items-center" style={{ height: CELL }}>
                   {d}
                 </div>
               ))}
             </div>
 
-            <div className="flex gap-1">
+            <div className="flex" style={{ gap: GAP }}>
               {weeks.map((week, wi) => (
-                <div key={wi} className="flex flex-col gap-1">
+                <div key={wi} className="flex flex-col" style={{ gap: GAP }}>
                   {week.map((cell) => (
                     <div
                       key={cell.key}
-                      className="size-3 rounded-sm transition-transform hover:scale-125"
-                      style={{ backgroundColor: SHADES[cell.intensity] }}
+                      className="rounded-[3px] transition-all hover:scale-125 hover:ring-2 hover:ring-primary/40"
+                      style={{
+                        width: CELL,
+                        height: CELL,
+                        backgroundColor: SHADES[cell.intensity],
+                        boxShadow:
+                          cell.intensity === 4
+                            ? "0 0 8px color-mix(in oklch, var(--primary) 60%, transparent)"
+                            : undefined,
+                      }}
                       title={
                         cell.ms === 0
                           ? `${FULL_DATE_FMT.format(cell.date)} — no focus`
@@ -142,11 +159,17 @@ export function FocusHeatmap() {
             </div>
           </div>
 
-          <div className="ml-7 mt-3 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <div className="ml-8 mt-4 flex items-center gap-2 text-[11px] text-muted-foreground/80">
             <span>Less</span>
-            {([0, 1, 2, 3, 4] as const).map((i) => (
-              <div key={i} className="size-3 rounded-sm" style={{ backgroundColor: SHADES[i] }} />
-            ))}
+            <div className="flex" style={{ gap: GAP }}>
+              {([0, 1, 2, 3, 4] as const).map((i) => (
+                <div
+                  key={i}
+                  className="rounded-[3px]"
+                  style={{ width: CELL, height: CELL, backgroundColor: SHADES[i] }}
+                />
+              ))}
+            </div>
             <span>More</span>
           </div>
         </div>
