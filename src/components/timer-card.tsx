@@ -24,18 +24,25 @@ function chime() {
       window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     const ctx = new Ctx();
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.connect(g);
-    g.connect(ctx.destination);
-    o.type = "sine";
-    o.frequency.setValueAtTime(660, ctx.currentTime);
-    o.frequency.setValueAtTime(880, ctx.currentTime + 0.15);
-    g.gain.setValueAtTime(0.0001, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.6);
-    o.start();
-    o.stop(ctx.currentTime + 0.6);
+    // Three ascending notes (C5, E5, G5 — a major triad) at ~0.5s gain.
+    // Loud enough to grab attention without being startling.
+    const notes = [523.25, 659.25, 783.99];
+    notes.forEach((freq, i) => {
+      const start = ctx.currentTime + i * 0.18;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.type = "sine";
+      o.frequency.setValueAtTime(freq, start);
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.exponentialRampToValueAtTime(0.5, start + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.4);
+      o.start(start);
+      o.stop(start + 0.45);
+    });
+    // mobile haptic — silently no-ops on desktop / unsupported browsers.
+    navigator.vibrate?.([120, 60, 120, 60, 200]);
   } catch {
     /* audio not available — ignore */
   }
