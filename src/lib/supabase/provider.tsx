@@ -68,9 +68,20 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
       }
       if (session?.user) setUser(session.user);
     });
+
+    // When the tab becomes visible, re-pull the user from Supabase. Covers the
+    // case where a magic-link confirmation happened in a different tab/device
+    // and our cached user is stale (still showing as anonymous).
+    const onVisible = async () => {
+      if (document.visibilityState !== "visible") return;
+      const { data } = await supabase.auth.getUser();
+      if (active && data.user) setUser(data.user);
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       active = false;
       sub.subscription.unsubscribe();
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [supabase]);
 
