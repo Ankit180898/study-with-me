@@ -103,23 +103,24 @@ function WorkingOnLine({ member, isMe }: { member: RoomMember; isMe: boolean }) 
     ) : null;
   }
 
+  function commit() {
+    saveWorkingOn(draft);
+    setEditing(false);
+  }
+
   if (editing) {
     return (
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void saveWorkingOn(draft);
-          setEditing(false);
+          commit();
         }}
       >
         <input
           autoFocus
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => {
-            void saveWorkingOn(draft);
-            setEditing(false);
-          }}
+          onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               setDraft(member.workingOn);
@@ -128,7 +129,7 @@ function WorkingOnLine({ member, isMe }: { member: RoomMember; isMe: boolean }) 
           }}
           maxLength={60}
           placeholder="What are you working on?"
-          className="w-full rounded-md border bg-background px-2 py-0.5 text-xs outline-none focus:border-ring"
+          className="w-full rounded-md border bg-background px-2 py-1 text-xs outline-none focus:border-ring"
         />
       </form>
     );
@@ -136,10 +137,19 @@ function WorkingOnLine({ member, isMe }: { member: RoomMember; isMe: boolean }) 
 
   return (
     <button
-      onClick={() => setEditing(true)}
-      className="truncate text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        setEditing(true);
+      }}
+      className="block w-full cursor-pointer truncate rounded-md px-1 py-0.5 text-left text-xs text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+      title="Click to edit"
     >
-      {member.workingOn ? `📝 ${member.workingOn}` : <span className="opacity-50">+ what are you working on?</span>}
+      {member.workingOn ? (
+        `📝 ${member.workingOn}`
+      ) : (
+        <span className="opacity-60">＋ what are you working on?</span>
+      )}
     </button>
   );
 }

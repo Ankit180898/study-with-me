@@ -255,7 +255,19 @@ export function useRoom(roomId: string) {
   // re-broadcast presence whenever our identity / focus state changes
   useEffect(() => {
     if (connected) channelRef.current?.track(meta.current).catch(() => {});
-  }, [connected, name, color, mode, status, startedAt, accumulatedMs, myToday, myLastCompletedAt]);
+  }, [
+    connected,
+    name,
+    color,
+    mode,
+    status,
+    startedAt,
+    accumulatedMs,
+    myToday,
+    myLastCompletedAt,
+    myLastCompletedMs,
+    workingOn,
+  ]);
 
   function applyReaction(messageId: string, emoji: string, uid: string, op: "add" | "remove") {
     setReactions((prev) => {
