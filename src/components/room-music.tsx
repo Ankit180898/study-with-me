@@ -81,13 +81,24 @@ export function RoomMusic({ roomId }: { roomId: string }) {
   function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const id = parseYouTubeId(input);
-    if (!id) {
-      setError("That doesn't look like a YouTube link.");
+    // Split on whitespace, commas, or newlines so users can paste many at
+    // once (e.g. a list copied from a playlist or chat).
+    const tokens = input.split(/[\s,]+/).filter(Boolean);
+    const ids = tokens
+      .map(parseYouTubeId)
+      .filter((id): id is string => Boolean(id));
+    if (ids.length === 0) {
+      setError("Couldn't find a YouTube link in there.");
       return;
     }
     setInput("");
-    void addToQueue(id);
+    // queue in original order; addToQueue is async — let them fire serially
+    // so titles fetch + DB inserts don't race.
+    (async () => {
+      for (const id of ids) {
+        await addToQueue(id);
+      }
+    })();
   }
 
   const hasTrack = !!state.videoId;
