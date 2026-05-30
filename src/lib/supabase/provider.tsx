@@ -57,8 +57,16 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
       if (active) setUser(u.user ?? null);
     })();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      setUser(session?.user ?? null);
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      // Supabase emits transient events (TOKEN_REFRESHED retries, INITIAL_SESSION
+      // bursts on tab refocus) where `session` is briefly null even though the
+      // user IS still signed in. Resetting to null would flicker the UI back to
+      // "Guest · tap to sync". Only clear on an explicit sign-out.
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+        return;
+      }
+      if (session?.user) setUser(session.user);
     });
     return () => {
       active = false;
