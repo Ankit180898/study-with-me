@@ -264,3 +264,53 @@ begin
   ) then alter publication supabase_realtime add table public.queue_votes;
   end if;
 end $$;
+
+-- ── Room tasks (shared checklist per room) ────────────────────────────
+-- Lightweight group todo list. Anyone in the room can add, check off, or
+-- remove any task — matches the "anyone can DJ" model. Completed tasks
+-- stay visible (struck through) so the group sees progress; removing is
+-- the explicit purge action.
+create table if not exists public.room_tasks (
+  id uuid primary key default gen_random_uuid(),
+  room_id text not null,
+  text text not null check (char_length(text) between 1 and 140),
+  done boolean not null default false,
+  created_by uuid not null references auth.users (id) on delete cascade,
+  created_by_name text not null,
+  created_at timestamptz not null default now(),
+  completed_at timestamptz,
+  completed_by uuid references auth.users (id) on delete set null,
+  completed_by_name text
+);
+
+create index if not exists room_tasks_room_created_idx
+  on public.room_tasks (room_id, created_at desc);
+
+alter table public.room_tasks enable row level security;
+
+drop policy if exists "room_tasks: read" on public.room_tasks;
+create policy "room_tasks: read"
+  on public.room_tasks for select to authenticated using (true);
+
+drop policy if exists "room_tasks: insert own" on public.room_tasks;
+create policy "room_tasks: insert own"
+  on public.room_tasks for insert to authenticated
+  with check (auth.uid() = created_by);
+
+drop policy if exists "room_tasks: update any" on public.room_tasks;
+create policy "room_tasks: update any"
+  on public.room_tasks for update to authenticated
+  using (true) with check (true);
+
+drop policy if exists "room_tasks: delete any" on public.room_tasks;
+create policy "room_tasks: delete any"
+  on public.room_tasks for delete to authenticated using (true);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'room_tasks'
+  ) then alter publication supabase_realtime add table public.room_tasks;
+  end if;
+end $$;

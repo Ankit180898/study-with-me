@@ -285,9 +285,21 @@ export function useMusicQueue(roomId: string) {
   const remove = useCallback(
     async (queueId: string) => {
       if (!supabase) return;
-      await supabase.from("room_music_queue").delete().eq("id", queueId);
+      // Optimistic — drop from local state immediately so the UI feels
+      // instant, even if the realtime DELETE event lags. The supabase call
+      // is the source of truth; we restore on failure.
+      const snapshot = items;
+      setItems((prev) => prev.filter((i) => i.id !== queueId));
+      const { error } = await supabase
+        .from("room_music_queue")
+        .delete()
+        .eq("id", queueId);
+      if (error) {
+        console.warn("[supabase] remove queue item", error.message);
+        setItems(snapshot);
+      }
     },
-    [supabase],
+    [supabase, items],
   );
 
   const advance = useCallback(async () => {

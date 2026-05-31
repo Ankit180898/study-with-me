@@ -15,12 +15,14 @@ import {
   Video,
   LogOut,
   BarChart3,
+  CheckSquare,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TimerCard } from "@/components/timer-card";
 import { VideoRoom } from "@/components/video-room";
+import { RoomTasks } from "@/components/room-tasks";
 import { RoomNav } from "@/components/room-nav";
 import { RoomMembersPanel } from "@/components/room-members-panel";
 import {
@@ -831,12 +833,13 @@ function Chat({
 
 // ─────────────────────── Tab system (always-mounted) ───────────────────────
 
-type TabId = "chat" | "video" | "timer";
+type TabId = "chat" | "video" | "timer" | "tasks";
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "chat", label: "Chat", icon: <MessageSquare className="size-3.5" /> },
   { id: "video", label: "Video", icon: <Video className="size-3.5" /> },
   { id: "timer", label: "Timer", icon: <TimerIcon className="size-3.5" /> },
+  { id: "tasks", label: "Tasks", icon: <CheckSquare className="size-3.5" /> },
 ];
 
 // ─────────────────────── RoomView ───────────────────────
@@ -977,6 +980,10 @@ export function RoomView({ roomId }: { roomId: string }) {
 
           <div className={cn("h-full min-h-0 overflow-y-auto p-4", activeTab !== "timer" && "hidden")}>
             <TimerCard />
+          </div>
+
+          <div className={cn("h-full min-h-0", activeTab !== "tasks" && "hidden")}>
+            <RoomTasks roomId={roomId} />
           </div>
         </div>
       </div>
