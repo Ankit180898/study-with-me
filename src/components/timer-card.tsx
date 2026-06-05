@@ -272,32 +272,59 @@ export function TimerCard() {
     : (elapsed % FREE_BLOCK) / FREE_BLOCK;
   const display = isCountdown ? formatClock(remaining) : formatClock(elapsed);
 
-  // ── Popout (Document Picture-in-Picture) ──────────────────────────────
+  // ── Popout window (Document PiP → window.open fallback) ──────────────
+  // Try Document Picture-in-Picture first (true always-on-top, Chrome 116+).
+  // If unavailable or the call rejects, fall back to a normal small browser
+  // window — not always-on-top, but a dedicated persistent window the user
+  // can position alongside YouTube / their other browser.
   const [popoutWin, setPopoutWin] = useState<Window | null>(null);
-  const popoutSupported = mounted && getDocumentPiP() !== null;
+  const [popoutError, setPopoutError] = useState<string | null>(null);
 
   async function openPopout() {
-    const pip = getDocumentPiP();
-    if (!pip) return;
-    if (popoutWin) {
+    setPopoutError(null);
+    if (popoutWin && !popoutWin.closed) {
       popoutWin.focus();
       return;
     }
-    try {
-      const win = await pip.requestWindow({ width: 320, height: 140 });
-      // Copy stylesheets so Tailwind classes work inside the popout. We render
-      // mostly with inline styles to be safe across browsers, but this catches
-      // any CSS variables (--primary, --background) we rely on.
-      document.querySelectorAll('style, link[rel="stylesheet"]').forEach((el) => {
-        win.document.head.appendChild(el.cloneNode(true));
-      });
-      win.document.body.style.margin = "0";
-      win.document.title = "Timer · Study with me";
-      win.addEventListener("pagehide", () => setPopoutWin(null));
-      setPopoutWin(win);
-    } catch (e) {
-      console.warn("[timer] popout failed", e);
+    let win: Window | null = null;
+    const pip = getDocumentPiP();
+    console.log("[timer] popout: Document PiP supported?", !!pip);
+    if (pip) {
+      try {
+        win = await pip.requestWindow({ width: 320, height: 160 });
+        console.log("[timer] popout: opened via Document PiP — will stay on top.");
+      } catch (e) {
+        console.warn("[timer] Document PiP rejected — falling back to popup.", e);
+      }
     }
+    if (!win) {
+      // Fallback: normal browser popup window. NOT always-on-top — it
+      // becomes a regular OS window that other apps can cover. Only Chrome
+      // 116+ / Edge 116+ / Opera 102+ Document PiP gives true stay-on-top.
+      win = window.open(
+        "",
+        "study-timer-popout",
+        "popup=yes,width=320,height=180,resizable=yes",
+      );
+      if (!win) {
+        setPopoutError(
+          "Popup blocked — allow popups for this site and click Pop out again.",
+        );
+        return;
+      }
+      console.log("[timer] popout: opened via window.open — NOT stay-on-top.");
+    }
+    // Copy stylesheets so CSS variables (--primary, --background) used in
+    // the popout match the app's theme.
+    document.querySelectorAll('style, link[rel="stylesheet"]').forEach((el) => {
+      win!.document.head.appendChild(el.cloneNode(true));
+    });
+    win.document.body.style.margin = "0";
+    win.document.title = "Timer · Study with me";
+    const onClose = () => setPopoutWin(null);
+    win.addEventListener("pagehide", onClose);
+    win.addEventListener("beforeunload", onClose);
+    setPopoutWin(win);
   }
 
   // close the popout if the user navigates away from the timer card
@@ -437,6 +464,12 @@ export function TimerCard() {
           )}
         </div>
       </div>
+
+      {popoutError && (
+        <div className="absolute inset-x-4 bottom-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {popoutError}
+        </div>
+      )}
 
       {popoutWin && createPortal(<PopoutTimer />, popoutWin.document.body)}
     </Card>
