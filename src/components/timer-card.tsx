@@ -382,8 +382,8 @@ export function TimerCard() {
         }}
       />
 
-      {/* Pop-out button — hidden on browsers that don't support Document PiP */}
-      {popoutSupported && !idle && (
+      {/* Pop-out button — uses Document PiP where available, falls back to window.open */}
+      {!idle && (
         <button
           type="button"
           onClick={openPopout}
